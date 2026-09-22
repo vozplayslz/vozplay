@@ -63,15 +63,16 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
   const fetchShareStatus = async () => {
     try {
       const res = await fetch(`/api/v1/queue/share/${queueItemId}`);
+      if (!res.ok) return;
       const json = await res.json();
-      if (json.success && json.data) {
+      if (json && json.success && json.data) {
         setData(json.data);
         setError(null);
-      } else {
-        setError(json.error || 'Apresentação não encontrada ou já encerrada.');
+      } else if (json && json.error) {
+        setError(json.error);
       }
-    } catch (err) {
-      setError('Falha de conexão com o servidor VozPlay.');
+    } catch {
+      // Reconexão transitória
     } finally {
       setLoading(false);
     }

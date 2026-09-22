@@ -291,7 +291,7 @@ apiRouter.get('/music', (req, res) => {
   res.json({
     success: true,
     total: results.length,
-    genres: ['Todos', 'Sertanejo', 'Pagode', 'Rock Nacional', 'Pop Internacional', 'MPB / Bossa Nova', 'Classic Rock'],
+    genres: ['Todos', ...Array.from(new Set(db.catalog.map(m => m.genre)))],
     data: results
   });
 });

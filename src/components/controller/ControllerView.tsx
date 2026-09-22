@@ -26,9 +26,14 @@ import {
   VolumeX,
   ChevronsUp,
   Trash2,
-  ArrowUp
+  ArrowUp,
+  PlusCircle,
+  History,
+  Clock
 } from 'lucide-react';
 import { QueueItem, PresenceCode, Session, PlaybackStatus } from '../../types.js';
+import { playDJAudioEffect } from '../../utils/synthAudio.js';
+import { ControllerSidebar, ControllerSectionFilter } from './ControllerSidebar.js';
 
 interface ControllerViewProps {
   session: Session | null;
@@ -44,6 +49,13 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
   const [actionFeedback, setActionFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [isActing, setIsActing] = useState(false);
+  const [currentFilter, setCurrentFilter] = useState<ControllerSectionFilter>('ALL');
+
+  // Manual Song Insertion Form State
+  const [manualSongTitle, setManualSongTitle] = useState('');
+  const [manualArtist, setManualArtist] = useState('');
+  const [manualSinger, setManualSinger] = useState('');
+  const [isSubmittingManual, setIsSubmittingManual] = useState(false);
 
   // Volume & Master Audio Control (Section 24)
   const [volume, setVolume] = useState(80);
@@ -238,6 +250,7 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
   // PRD Section 47: DJ Soundboard Audio Triggers
   const handleTriggerSound = async (soundType: string, label: string) => {
     try {
+      playDJAudioEffect(soundType);
       await fetch('/api/v1/controller/soundboard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -311,60 +324,117 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
   };
 
   const activeQueued = queue.filter((q) => q.status === 'QUEUED');
+  const playedHistory = queue.filter((q) => q.status === 'COMPLETED' || q.status === 'ERROR');
+
+  const handleAddManualSong = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualSongTitle.trim() || !manualSinger.trim()) {
+      showFeedback('Preencha pelo menos o título da música e o nome do cantor.', 'error');
+      return;
+    }
+    setIsSubmittingManual(true);
+    try {
+      const res = await fetch('/api/v1/queue/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          musicId: 'manual-' + Date.now(),
+          musicTitle: manualSongTitle.trim(),
+          musicArtist: manualArtist.trim() || 'Artista Convidado',
+          participantDisplayName: manualSinger.trim(),
+          participantPhone: '98999990000',
+          versionStyle: 'KARAOKE',
+          toneOffset: 0,
+          presenceCode: presenceCode?.code || '1234'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showFeedback(`"${manualSongTitle}" adicionada à fila com sucesso!`, 'success');
+        setManualSongTitle('');
+        setManualArtist('');
+        setManualSinger('');
+        fetchQueueAndPlayback();
+        setCurrentFilter('QUEUE');
+      } else {
+        showFeedback(data.error || 'Erro ao adicionar música', 'error');
+      }
+    } catch {
+      showFeedback('Falha de conexão com o servidor', 'error');
+    } finally {
+      setIsSubmittingManual(false);
+    }
+  };
 
   return (
-    <div className="max-w-4xl mx-auto p-3 sm:p-6 space-y-6 pb-24">
-      {/* Operator Header Bar */}
-      <div className="rounded-3xl bg-[#0e1322]/90 border border-white/10 p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4 shadow-2xl backdrop-blur-xl">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-lg shadow-purple-600/30">
-            <Sliders className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-base sm:text-lg font-black text-white">Mesa do Controlador</h2>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                Operador de Áudio & TV
-              </span>
+    <div className="w-full max-w-7xl mx-auto p-3 sm:p-6 pb-24 space-y-6">
+      <div className="flex flex-col lg:flex-row items-start gap-6">
+        {/* Modular Operator Sidebar */}
+        <ControllerSidebar
+          currentFilter={currentFilter}
+          onSelectFilter={setCurrentFilter}
+          queueLength={activeQueued.length}
+          playbackStatus={playbackStatus}
+          presenceRemainingSeconds={presenceCode?.remainingSeconds || 60}
+          masterVolume={isMuted ? 0 : volume}
+          session={session}
+          tvConnected={tvConnected}
+        />
+
+        {/* Main Sound Operator Console */}
+        <main className="flex-1 min-w-0 w-full space-y-6">
+          {/* Operator Header Bar */}
+          <div className="rounded-3xl bg-[#0e1322]/90 border border-white/10 p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4 shadow-2xl backdrop-blur-xl">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-lg shadow-purple-600/30">
+                <Sliders className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base sm:text-lg font-black text-white">Mesa do Controlador</h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                    Operador de Áudio & TV
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Sessão: <strong className="text-white font-mono">{session?.code || 'SLZ-704'}</strong> • Operador: <span className="text-purple-300 font-semibold">{session?.activeControllerName || 'Carlos'}</span>
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-slate-400 mt-1">
-              Sessão: <strong className="text-white font-mono">{session?.code || 'SLZ-704'}</strong> • Operador: <span className="text-purple-300 font-semibold">{session?.activeControllerName || 'Carlos'}</span>
-            </p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-3 text-xs">
-          <div className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl border transition-all ${
-            tvConnected
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-              : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-          }`}>
-            <span className="relative flex h-2.5 w-2.5">
-              {tvConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
-              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${tvConnected ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-            </span>
-            <Tv className="w-4 h-4" />
-            <span className="font-bold">{tvConnected ? 'TV Sincronizada' : 'TV Offline'}</span>
+            <div className="flex items-center gap-3 text-xs">
+              <div className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl border transition-all ${
+                tvConnected
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+              }`}>
+                <span className="relative flex h-2.5 w-2.5">
+                  {tvConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+                  <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${tvConnected ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                </span>
+                <Tv className="w-4 h-4" />
+                <span className="font-bold">{tvConnected ? 'TV Sincronizada' : 'TV Offline'}</span>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Global Feedback Banner */}
-      {actionFeedback && (
-        <div
-          className={`p-4 rounded-2xl border text-xs font-semibold flex items-center gap-2.5 shadow-xl transition-all ${
-            actionFeedback.type === 'success'
-              ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-200'
-              : 'bg-rose-950/80 border-rose-500/40 text-rose-200'
-          }`}
-        >
-          {actionFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />}
-          <span>{actionFeedback.message}</span>
-        </div>
-      )}
+          {/* Global Feedback Banner */}
+          {actionFeedback && (
+            <div
+              className={`p-4 rounded-2xl border text-xs font-semibold flex items-center gap-2.5 shadow-xl transition-all ${
+                actionFeedback.type === 'success'
+                  ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-200'
+                  : 'bg-rose-950/80 border-rose-500/40 text-rose-200'
+              }`}
+            >
+              {actionFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />}
+              <span>{actionFeedback.message}</span>
+            </div>
+          )}
 
       {/* SECTION 13: 4-DIGIT PRESENCE CODE HUB */}
-      <div className="rounded-3xl bg-gradient-to-br from-[#121028] via-[#0d1222] to-[#090d18] border border-purple-500/30 p-5 sm:p-7 shadow-2xl relative overflow-hidden ring-1 ring-white/5">
+      {(currentFilter === 'ALL' || currentFilter === 'PRESENCE') && (
+        <div className="rounded-3xl bg-gradient-to-br from-[#121028] via-[#0d1222] to-[#090d18] border border-purple-500/30 p-5 sm:p-7 shadow-2xl relative overflow-hidden ring-1 ring-white/5">
         <div className="absolute top-0 right-0 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="flex flex-col sm:flex-row items-center justify-between gap-5 relative z-10">
           <div className="flex items-center gap-4 text-center sm:text-left">
@@ -416,8 +486,10 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
           </div>
         </div>
       </div>
+      )}
 
       {/* MASTER PLAYBACK CONTROLLER */}
+      {(currentFilter === 'ALL' || currentFilter === 'PLAYER') && (
       <div className="rounded-3xl bg-[#0d1222]/95 border border-white/10 p-5 sm:p-7 shadow-2xl space-y-6 backdrop-blur-xl ring-1 ring-white/5">
         <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
           <div className="flex items-center gap-3">
@@ -596,8 +668,10 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
           </div>
         </div>
       </div>
+      )}
 
       {/* PRD Section 47: DJ SOUNDBOARD & AUDIO TRIGGERS */}
+      {(currentFilter === 'ALL' || currentFilter === 'SOUNDBOARD') && (
       <div className="rounded-3xl bg-[#0d1222]/95 border border-white/10 p-5 sm:p-7 shadow-2xl space-y-4 backdrop-blur-xl ring-1 ring-white/5">
         <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
           <div className="flex items-center gap-2">
@@ -611,13 +685,14 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
           </span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
             { id: 'applause', label: 'Aplausos', icon: '👏', desc: 'Palmas da Galera' },
             { id: 'drums', label: 'Tambores', icon: '🥁', desc: 'Rufar de Suspense' },
             { id: 'airhorn', label: 'Air Horn', icon: '📣', desc: 'Corneta de DJ' },
             { id: 'cheer', label: 'Festa', icon: '🎉', desc: 'Assobios & Vibração' },
-            { id: 'boo', label: 'Uhhh / Vaia', icon: '👎', desc: 'Trote Amigável' }
+            { id: 'boo', label: 'Uhhh / Vaia', icon: '👎', desc: 'Trote Amigável' },
+            { id: 'vinheta', label: 'Vinheta', icon: '✨', desc: 'Jingle VozPlay' }
           ].map((sound) => (
             <button
               key={sound.id}
@@ -633,8 +708,10 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
           ))}
         </div>
       </div>
+      )}
 
       {/* QUEUE MONITOR FOR CONTROLLER */}
+      {(currentFilter === 'ALL' || currentFilter === 'QUEUE') && (
       <div className="rounded-3xl bg-[#0e1322]/90 border border-white/10 p-5 sm:p-6 shadow-2xl space-y-4 backdrop-blur-xl">
         <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
           <div className="flex items-center gap-2">
@@ -742,6 +819,117 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
             ))}
           </div>
         )}
+      </div>
+      )}
+
+      {/* SECTION: INCLUSÃO MANUAL NA MESA */}
+      {(currentFilter === 'ALL' || currentFilter === 'ADD_MANUAL') && (
+        <div className="rounded-3xl bg-[#0d1222]/95 border border-white/10 p-5 sm:p-7 shadow-2xl space-y-5 backdrop-blur-xl ring-1 ring-white/5">
+          <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+            <div className="flex items-center gap-2.5">
+              <PlusCircle className="w-5 h-5 text-purple-400" />
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-200">
+                  Inclusão Manual na Mesa de Som
+                </h3>
+                <p className="text-[11px] text-slate-400">Adicione pedidos prioritários diretamente da bancada</p>
+              </div>
+            </div>
+            <span className="text-[10px] text-purple-300 font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20">
+              Operador Autorizado
+            </span>
+          </div>
+
+          <form onSubmit={handleAddManualSong} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1.5">Título da Música *</label>
+              <input
+                type="text"
+                required
+                value={manualSongTitle}
+                onChange={(e) => setManualSongTitle(e.target.value)}
+                placeholder="Ex: Evidências"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#090d18] border border-white/10 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-purple-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1.5">Artista / Banda</label>
+              <input
+                type="text"
+                value={manualArtist}
+                onChange={(e) => setManualArtist(e.target.value)}
+                placeholder="Ex: Chitãozinho & Xororó"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#090d18] border border-white/10 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-purple-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-300 block mb-1.5">Nome do Cantor(a) *</label>
+              <input
+                type="text"
+                required
+                value={manualSinger}
+                onChange={(e) => setManualSinger(e.target.value)}
+                placeholder="Ex: Mesa 04 - Amanda"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#090d18] border border-white/10 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-purple-500"
+              />
+            </div>
+            <div className="sm:col-span-3 flex justify-end">
+              <button
+                type="submit"
+                disabled={isSubmittingManual}
+                className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-purple-600/30 transition active:scale-95 disabled:opacity-50 flex items-center gap-2"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>{isSubmittingManual ? 'Inserindo...' : 'Adicionar Pedido à Fila'}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* SECTION: HISTÓRICO CANTADO */}
+      {(currentFilter === 'ALL' || currentFilter === 'HISTORY') && (
+        <div className="rounded-3xl bg-[#0e1322]/90 border border-white/10 p-5 sm:p-6 shadow-2xl space-y-4 backdrop-blur-xl">
+          <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+            <div className="flex items-center gap-2">
+              <History className="w-4 h-4 text-slate-400" />
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-200">
+                Histórico de Apresentações Concluídas ({playedHistory.length})
+              </h3>
+            </div>
+            <span className="text-[10px] text-slate-400">Sessão {session?.code || 'SLZ-704'}</span>
+          </div>
+
+          {playedHistory.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 text-xs">
+              Nenhuma música concluída ainda nesta sessão. Conforme as músicas forem tocadas na TV, elas aparecerão listadas aqui.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {playedHistory.map((item) => (
+                <div
+                  key={item.id}
+                  className="p-3 rounded-xl bg-[#090d18]/60 border border-white/[0.04] flex items-center justify-between text-xs"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-white/[0.04] flex items-center justify-center text-slate-400">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-200">{item.musicTitle}</p>
+                      <p className="text-[11px] text-slate-400">{item.musicArtist} • Cantor(a): <strong className="text-purple-300">{item.participantDisplayName}</strong></p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-white/[0.05] text-slate-400 border border-white/[0.05]">
+                    {item.status === 'COMPLETED' ? 'Finalizada' : 'Falha/Ignorada'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+        </main>
       </div>
 
       {/* ERROR REPORTING MODAL (Section 25) */}

@@ -8,6 +8,7 @@
  */
 
 export type Role = 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'SYSTEM_ADMIN';
+export type ActiveTab = 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV' | 'TRACKER';
 export type ClientType = 'PWA' | 'ANDROID' | 'ANDROID_TV';
 export type SessionStatus = 'CREATED' | 'ACTIVE' | 'PAUSED' | 'ENDED' | 'EXPIRED';
 export type PlaybackStatus = 'IDLE' | 'LOADING' | 'PLAYING' | 'PAUSED' | 'ERROR' | 'COMPLETED';

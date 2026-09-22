@@ -243,6 +243,150 @@ const INITIAL_CATALOG: Music[] = [
         quality: '1080p'
       }
     ]
+  },
+  {
+    id: 'm-9',
+    title: 'Não Quero Dinheiro (Só Quero Amar)',
+    artist: 'Tim Maia',
+    genre: 'Pop / Soul Nacional',
+    coverUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80',
+    versions: [
+      {
+        id: 'v-9-1',
+        musicId: 'm-9',
+        style: 'karaoke',
+        label: 'Karaokê Soul Brasileiro (Metais e Letra)',
+        youtubeVideoId: 'fJ9rUzIMcZQ',
+        durationSec: 165,
+        quality: '1080p'
+      },
+      {
+        id: 'v-9-2',
+        musicId: 'm-9',
+        style: 'playback',
+        label: 'Playback Banda Completa',
+        youtubeVideoId: 'wYV_ZJ2U-t4',
+        durationSec: 165,
+        quality: '1080p'
+      }
+    ]
+  },
+  {
+    id: 'm-10',
+    title: 'Deixa Acontecer',
+    artist: 'Grupo Revelação',
+    genre: 'Pagode',
+    coverUrl: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&q=80',
+    versions: [
+      {
+        id: 'v-10-1',
+        musicId: 'm-10',
+        style: 'karaoke',
+        label: 'Karaokê Pagode Roda de Samba',
+        youtubeVideoId: 'CevxZvSJLk8',
+        durationSec: 215,
+        quality: '1080p'
+      },
+      {
+        id: 'v-10-2',
+        musicId: 'm-10',
+        style: 'acustico',
+        label: 'Cavaquinho & Pandeiro Acústico',
+        youtubeVideoId: '9Gj6y94xR_4',
+        durationSec: 210,
+        quality: '720p'
+      }
+    ]
+  },
+  {
+    id: 'm-11',
+    title: 'Mulher de Fases',
+    artist: 'Raimundos',
+    genre: 'Rock Nacional',
+    coverUrl: 'https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=300&q=80',
+    versions: [
+      {
+        id: 'v-11-1',
+        musicId: 'm-11',
+        style: 'karaoke',
+        label: 'Karaokê Rock Pesado com Guia',
+        youtubeVideoId: '9bZkp7q19f0',
+        durationSec: 218,
+        quality: '1080p'
+      }
+    ]
+  },
+  {
+    id: 'm-12',
+    title: 'Como Nossos Pais',
+    artist: 'Elis Regina',
+    genre: 'MPB / Bossa Nova',
+    coverUrl: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300&q=80',
+    versions: [
+      {
+        id: 'v-12-1',
+        musicId: 'm-12',
+        style: 'karaoke',
+        label: 'Karaokê Piano Clássico Elis',
+        youtubeVideoId: 'c5QfXj533f0',
+        durationSec: 260,
+        quality: '1080p'
+      },
+      {
+        id: 'v-12-2',
+        musicId: 'm-12',
+        style: 'acustico',
+        label: 'Versão Voz & Violão Intimista',
+        youtubeVideoId: 'sF80OBUeFBU',
+        durationSec: 255,
+        quality: '720p'
+      }
+    ]
+  },
+  {
+    id: 'm-13',
+    title: 'Temporal de Amor',
+    artist: 'Leandro & Leonardo',
+    genre: 'Sertanejo',
+    coverUrl: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=300&q=80',
+    versions: [
+      {
+        id: 'v-13-1',
+        musicId: 'm-13',
+        style: 'karaoke',
+        label: 'Karaokê Modão Sertanejo com Sanfona',
+        youtubeVideoId: 'wYV_ZJ2U-t4',
+        durationSec: 245,
+        quality: '1080p'
+      }
+    ]
+  },
+  {
+    id: 'm-14',
+    title: 'Shallow',
+    artist: 'Lady Gaga & Bradley Cooper',
+    genre: 'Pop Internacional',
+    coverUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&q=80',
+    versions: [
+      {
+        id: 'v-14-1',
+        musicId: 'm-14',
+        style: 'karaoke',
+        label: 'Karaoke Duet Version (Dual Lyrics)',
+        youtubeVideoId: 'G7KNmW9a75Y',
+        durationSec: 215,
+        quality: '1080p'
+      },
+      {
+        id: 'v-14-2',
+        musicId: 'm-14',
+        style: 'acustico',
+        label: 'Acoustic Guitar & Piano Track',
+        youtubeVideoId: 'L_LUpnjgPso',
+        durationSec: 210,
+        quality: '720p'
+      }
+    ]
   }
 ];
 

@@ -38,6 +38,7 @@ import {
   Activity
 } from 'lucide-react';
 import { Session, SessionMetrics, AuditLog, SessionNotification, Lead } from '../../types.js';
+import { SupervisorSidebar, SUPERVISOR_ITEMS_MAP, SupervisorSectionId } from './SupervisorSidebar.js';
 
 interface DeviceItem {
   deviceId: string;
@@ -55,7 +56,7 @@ interface SupervisorViewProps {
 }
 
 export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConnected, onSessionUpdated }) => {
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ANALYTICS' | 'DEVICES' | 'TV_ALERT' | 'CONTROLLER' | 'QRCODE' | 'LEADS' | 'AUDIT'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<SupervisorSectionId>('OVERVIEW');
   const [metrics, setMetrics] = useState<SessionMetrics | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [notifications, setNotifications] = useState<SessionNotification[]>([]);
@@ -302,337 +303,25 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConne
     ? Math.max(0, Math.floor((new Date(session.scheduledEndTime).getTime() - Date.now()) / 60000))
     : 0;
 
-  type SupervisorTab = 'OVERVIEW' | 'ANALYTICS' | 'DEVICES' | 'TV_ALERT' | 'CONTROLLER' | 'LEADS' | 'AUDIT' | 'QRCODE';
-
-  interface MenuItem {
-    id: SupervisorTab;
-    label: string;
-    description: string;
-    icon: React.ComponentType<{ className?: string }>;
-    badge: string | null;
-  }
-
-  interface MenuSection {
-    group: string;
-    items: MenuItem[];
-  }
-
-  const menuSections: MenuSection[] = [
-    {
-      group: 'OPERAÇÃO DA SALA',
-      items: [
-        {
-          id: 'OVERVIEW',
-          label: 'Sessão & Horários',
-          description: 'Timer, prorrogações e status',
-          icon: Clock,
-          badge: null
-        },
-        {
-          id: 'CONTROLLER',
-          label: 'Controladores',
-          description: 'Operadores de som & presença',
-          icon: Users,
-          badge: null
-        },
-        {
-          id: 'TV_ALERT',
-          label: 'Avisos no Telão',
-          description: 'Transmissão urgente para a TV',
-          icon: Radio,
-          badge: null
-        },
-        {
-          id: 'QRCODE',
-          label: 'QR Code da Mesa',
-          description: 'Acesso instantâneo dos clientes',
-          icon: QrCode,
-          badge: null
-        }
-      ]
-    },
-    {
-      group: 'GESTÃO & INTELIGÊNCIA',
-      items: [
-        {
-          id: 'ANALYTICS',
-          label: 'Inteligência & Métricas',
-          description: 'Gêneros, picos e ranking',
-          icon: BarChart3,
-          badge: null
-        },
-        {
-          id: 'DEVICES',
-          label: 'Dispositivos & Rede',
-          description: 'TV, controles e celulares',
-          icon: Wifi,
-          badge: devices.length > 0 ? String(devices.length) : null
-        },
-        {
-          id: 'LEADS',
-          label: 'Leads & Clientes',
-          description: 'Base LGPD e exportação CSV',
-          icon: Users,
-          badge: leads.length > 0 ? String(leads.length) : null
-        },
-        {
-          id: 'AUDIT',
-          label: 'Trilha de Auditoria',
-          description: 'Log imutável de eventos',
-          icon: FileText,
-          badge: auditLogs.length > 0 ? String(auditLogs.length) : null
-        }
-      ]
-    }
-  ];
-
-  const allMenuItems: MenuItem[] = menuSections.reduce<MenuItem[]>((acc, s) => acc.concat(s.items), []);
-  const currentItem: MenuItem = allMenuItems.find((item) => item.id === activeTab) || allMenuItems[0];
+  const currentItem = SUPERVISOR_ITEMS_MAP[activeTab] || SUPERVISOR_ITEMS_MAP.OVERVIEW;
 
   return (
     <div className="w-full max-w-[1440px] mx-auto p-3 sm:p-6 pb-24 space-y-6">
-      {/* Mobile Top App Bar (< lg) */}
-      <div className="lg:hidden flex items-center justify-between p-3.5 rounded-2xl bg-[#0a0e1c] border border-white/10 shadow-xl">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setMobileSidebarOpen(true)}
-            className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 active:scale-95 transition"
-            aria-label="Abrir menu lateral"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
-              <currentItem.icon className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="text-xs font-display font-black text-white block leading-tight">{currentItem.label}</span>
-              <span className="text-[10px] text-slate-400 leading-none">Supervisor / Caixa</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-950/60 text-purple-300 border border-purple-500/30">
-            {session?.code || 'SLZ-704'}
-          </span>
-          <button
-            onClick={() => setShowTakeoverModal(true)}
-            className="p-2 rounded-xl bg-rose-600/20 border border-rose-500/30 text-rose-400 active:scale-95 transition"
-            title="Assumir Controle Emergencial"
-          >
-            <AlertOctagon className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Mobile Sidebar Slide-over Drawer */}
-      {mobileSidebarOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
-          <div
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
-            onClick={() => setMobileSidebarOpen(false)}
-          />
-          <aside className="relative w-80 max-w-[85vw] h-full bg-[#0a0e1c] border-r border-white/10 p-5 overflow-y-auto flex flex-col justify-between shadow-2xl z-10 animate-in slide-in-from-left duration-200">
-            <div className="space-y-6">
-              {/* Header inside drawer */}
-              <div className="flex items-center justify-between pb-4 border-b border-white/10">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500/20 to-purple-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                    <Shield className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-display font-black text-white">VozPlay Supervisor</h3>
-                    <p className="text-[10px] text-amber-400/90 font-bold uppercase tracking-wider">Autoridade Máxima</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setMobileSidebarOpen(false)}
-                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Navigation in drawer */}
-              <div className="space-y-5">
-                {menuSections.map((sec) => (
-                  <div key={sec.group} className="space-y-1.5">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 px-3 block">
-                      {sec.group}
-                    </span>
-                    <div className="space-y-1">
-                      {sec.items.map((item) => {
-                        const Icon = item.icon;
-                        const isActive = activeTab === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            onClick={() => {
-                              setActiveTab(item.id);
-                              setMobileSidebarOpen(false);
-                            }}
-                            className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition group ${
-                              isActive
-                                ? 'bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-transparent border-l-4 border-amber-400 text-white font-bold'
-                                : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-                            }`}
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div
-                                className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition ${
-                                  isActive
-                                    ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40'
-                                    : 'bg-white/[0.04] text-slate-400 group-hover:text-slate-200 border border-white/5'
-                                }`}
-                              >
-                                <Icon className="w-4 h-4" />
-                              </div>
-                              <div className="truncate">
-                                <span className="text-xs block font-bold leading-tight">{item.label}</span>
-                                <span className="text-[10px] text-slate-400 block truncate">{item.description}</span>
-                              </div>
-                            </div>
-                            {item.badge && (
-                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                {item.badge}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Bottom Actions inside drawer */}
-            <div className="pt-4 border-t border-white/10 space-y-3">
-              <button
-                onClick={() => {
-                  setMobileSidebarOpen(false);
-                  setShowTakeoverModal(true);
-                }}
-                className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white text-xs font-black flex items-center justify-center gap-2 shadow-lg shadow-rose-900/30"
-              >
-                <AlertOctagon className="w-4 h-4" />
-                <span>Assumir Controle Emergencial</span>
-              </button>
-            </div>
-          </aside>
-        </div>
-      )}
-
-      {/* Main Flex Layout with Desktop Sidebar */}
+      {/* Main Flex Layout with Modularized Sidebar */}
       <div className="flex flex-col lg:flex-row items-start gap-6">
-        {/* DESKTOP SIDEBAR */}
-        <aside className="hidden lg:flex w-72 flex-shrink-0 flex-col justify-between rounded-3xl bg-[#0a0e1c] border border-white/10 p-4 shadow-2xl space-y-6 sticky top-20 ring-1 ring-white/5">
-          <div className="space-y-6">
-            {/* Identity & Session Card */}
-            <div className="p-4 rounded-2xl bg-gradient-to-b from-[#131728] to-[#0c101d] border border-amber-500/20 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-28 h-28 bg-amber-500/5 rounded-full blur-2xl pointer-events-none" />
-              <div className="flex items-center gap-3 mb-2.5">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500/20 to-purple-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center font-bold shadow-md shadow-amber-950/40">
-                  <Shield className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-display font-black text-white leading-tight">VozPlay Supervisor</h3>
-                  <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30 inline-block mt-0.5">
-                    Autoridade Máxima
-                  </span>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-white/[0.08] flex items-center justify-between text-xs">
-                <div className="text-slate-400 text-[11px] truncate">
-                  {session?.establishmentName || 'VozPlay Lounge'}
-                </div>
-                <span className="font-mono text-purple-300 font-black px-1.5 py-0.5 rounded bg-purple-950/70 border border-purple-500/30 text-[10px]">
-                  {session?.code || 'SLZ-704'}
-                </span>
-              </div>
-            </div>
-
-            {/* Navigation Groups */}
-            <div className="space-y-5">
-              {menuSections.map((sec) => (
-                <div key={sec.group} className="space-y-1.5">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 px-3 block">
-                    {sec.group}
-                  </span>
-                  <div className="space-y-1">
-                    {sec.items.map((item) => {
-                      const Icon = item.icon;
-                      const isActive = activeTab === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => setActiveTab(item.id)}
-                          className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition group ${
-                            isActive
-                              ? 'bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-transparent border-l-4 border-amber-400 text-white font-bold shadow-sm'
-                              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div
-                              className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition ${
-                                isActive
-                                  ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40 shadow-sm'
-                                  : 'bg-white/[0.04] text-slate-400 group-hover:text-slate-200 border border-white/5'
-                              }`}
-                            >
-                              <Icon className="w-4 h-4" />
-                            </div>
-                            <div className="truncate">
-                              <span className="text-xs block font-bold leading-tight">{item.label}</span>
-                              <span className="text-[10px] text-slate-400 block truncate">{item.description}</span>
-                            </div>
-                          </div>
-                          {item.badge ? (
-                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                              {item.badge}
-                            </span>
-                          ) : (
-                            isActive && <ChevronRight className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Sidebar Footer Widget */}
-          <div className="space-y-3 pt-4 border-t border-white/10">
-            {/* Session Time Widget */}
-            <div className="p-3 rounded-2xl bg-black/40 border border-white/5 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-amber-400" />
-                <span className="text-slate-300 font-bold text-[11px]">{remainingTimeMinutes}m restantes</span>
-              </div>
-              <button
-                onClick={() => handleExtendSession(15)}
-                className="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[10px] font-black transition active:scale-95"
-              >
-                +15m
-              </button>
-            </div>
-
-            {/* Emergency Takeover Button */}
-            <button
-              id="btn-sup-takeover"
-              onClick={() => setShowTakeoverModal(true)}
-              className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs shadow-lg shadow-rose-950/40 transition flex items-center justify-center gap-2 active:scale-95 border border-white/20"
-            >
-              <AlertOctagon className="w-4 h-4" />
-              <span>Takeover Emergencial</span>
-            </button>
-          </div>
-        </aside>
+        <SupervisorSidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          session={session}
+          devicesCount={devices.length}
+          leadsCount={leads.length}
+          auditLogsCount={auditLogs.length}
+          remainingTimeMinutes={remainingTimeMinutes}
+          onExtendSession={handleExtendSession}
+          mobileOpen={mobileSidebarOpen}
+          setMobileOpen={setMobileSidebarOpen}
+          onOpenTakeover={() => setShowTakeoverModal(true)}
+        />
 
         {/* MAIN WORKSPACE CONTENT */}
         <main className="flex-1 min-w-0 w-full space-y-6">

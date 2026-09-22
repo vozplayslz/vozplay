@@ -9,9 +9,9 @@ import React, { useState } from 'react';
 import { Smartphone, Sliders, Shield, Tv, Wifi, WifiOff, Globe, Disc3, HelpCircle } from 'lucide-react';
 import { PWAInstallButton } from './common/PWAInstallButton.js';
 import { HelpModal } from './common/HelpModal.js';
-import { Session } from '../types.js';
+import { Session, ActiveTab } from '../types.js';
 
-export type ActiveTab = 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV' | 'TRACKER';
+export type { ActiveTab };
 
 interface NavigationProps {
   activeTab: ActiveTab;

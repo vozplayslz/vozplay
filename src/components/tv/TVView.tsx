@@ -507,7 +507,8 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
                 {activeSoundBanner.soundType === 'applause' ? '👏' :
                  activeSoundBanner.soundType === 'drums' ? '🥁' :
                  activeSoundBanner.soundType === 'airhorn' ? '📣' :
-                 activeSoundBanner.soundType === 'cheer' ? '🎉' : '👎'}
+                 activeSoundBanner.soundType === 'cheer' ? '🎉' :
+                 activeSoundBanner.soundType === 'vinheta' ? '✨' : '👎'}
               </span>
               <span className="tracking-wide">DJ EFEITO: {activeSoundBanner.label}!</span>
             </div>

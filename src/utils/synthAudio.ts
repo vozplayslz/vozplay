@@ -148,6 +148,25 @@ export function playDJAudioEffect(soundType: string): void {
         break;
       }
 
+      case 'vinheta': {
+        // Lush futuristic chime & harmonic chord jingle for VozPlay
+        const chord = [523.25, 659.25, 783.99, 1046.50]; // C Major lush chime
+        chord.forEach((freq, idx) => {
+          const t = now + idx * 0.08;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, t);
+          gain.gain.setValueAtTime(0.3, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t);
+          osc.stop(t + 1.2);
+        });
+        break;
+      }
+
       default:
         break;
     }
