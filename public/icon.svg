@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="primaryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="50%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#ec4899" />
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.2" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4" />
+
+  <!-- Central Play & Mic Fusion Icon -->
+  <g transform="translate(106, 86)">
+    <!-- Equalizer bars / Waveform circle -->
+    <circle cx="150" cy="170" r="140" fill="none" stroke="url(#glowGrad)" stroke-width="12" stroke-dasharray="8 12" />
+    
+    <!-- Play Triangle -->
+    <path d="M 120,90 L 225,170 L 120,250 Z" fill="url(#primaryGrad)" />
+    
+    <!-- Microphone Silhouette overlapping -->
+    <rect x="135" y="115" width="30" height="60" rx="15" fill="#ffffff" opacity="0.95" />
+    <path d="M 125,145 C 125,175 175,175 175,145" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
+    <line x1="150" y1="175" x2="150" y2="200" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
+    <line x1="135" y1="200" x2="165" y2="200" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
+  </g>
+
+  <!-- Brand Text -->
+  <text x="256" y="420" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="900" letter-spacing="2" fill="#ffffff">
+    VOZ<tspan fill="#ec4899">PLAY</tspan>
+  </text>
+  <text x="256" y="450" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="600" letter-spacing="6" fill="#94a3b8">
+    KARAOKÊ
+  </text>
+</svg>

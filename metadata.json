@@ -1,0 +1,6 @@
+{
+  "name": "VozPlay - Plataforma de Karaokê",
+  "description": "Plataforma de karaokê profissional para estabelecimentos com interfaces independentes para Participante, Controlador, Supervisor/Caixa e TV.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
