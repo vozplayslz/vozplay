@@ -27,9 +27,26 @@ import {
   AlertOctagon,
   TrendingUp,
   Music2,
-  Radio
+  Radio,
+  Wifi,
+  Smartphone,
+  Laptop,
+  Cpu,
+  Menu,
+  X,
+  ChevronRight,
+  Activity
 } from 'lucide-react';
 import { Session, SessionMetrics, AuditLog, SessionNotification, Lead } from '../../types.js';
+
+interface DeviceItem {
+  deviceId: string;
+  clientType: 'PWA' | 'ANDROID' | 'ANDROID_TV';
+  role: 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV';
+  platform: string;
+  clientVersion: string;
+  lastSeenAt: string;
+}
 
 interface SupervisorViewProps {
   session: Session | null;
@@ -38,11 +55,12 @@ interface SupervisorViewProps {
 }
 
 export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConnected, onSessionUpdated }) => {
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ANALYTICS' | 'TV_ALERT' | 'CONTROLLER' | 'QRCODE' | 'LEADS' | 'AUDIT'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ANALYTICS' | 'DEVICES' | 'TV_ALERT' | 'CONTROLLER' | 'QRCODE' | 'LEADS' | 'AUDIT'>('OVERVIEW');
   const [metrics, setMetrics] = useState<SessionMetrics | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [notifications, setNotifications] = useState<SessionNotification[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [targetUrl, setTargetUrl] = useState<string>('');
 
@@ -69,45 +87,65 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConne
   const [showTakeoverModal, setShowTakeoverModal] = useState(false);
   const [isTakingOver, setIsTakingOver] = useState(false);
 
+  // Mobile Sidebar Drawer State
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
   const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     fetchSupervisorData();
+
+    // Register Supervisor Device Handshake (PRD Seções 36 & 37)
+    fetch('/api/v1/devices/handshake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: 'sup-desk-' + (typeof window !== 'undefined' ? window.location.hostname : 'manager'),
+        clientType: 'PWA',
+        role: 'SUPERVISOR',
+        platform: 'Gerência / Caixa Dashboard',
+        clientVersion: '1.2.0-sup'
+      })
+    }).catch(() => {});
+
     const interval = setInterval(fetchSupervisorData, 4000);
     return () => clearInterval(interval);
   }, []);
 
+  const safeFetchJson = async (url: string) => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  };
+
   const fetchSupervisorData = async () => {
     try {
-      const [metricsRes, logsRes, notifsRes, leadsRes, qrRes, analyticsRes] = await Promise.all([
-        fetch('/api/v1/metrics'),
-        fetch('/api/v1/supervisor/audit-logs'),
-        fetch('/api/v1/supervisor/notifications'),
-        fetch('/api/v1/leads'),
-        fetch('/api/v1/supervisor/qrcode'),
-        fetch('/api/v1/analytics')
+      const [metricsData, logsData, notifsData, leadsData, qrData, analyticsData, devicesData] = await Promise.all([
+        safeFetchJson('/api/v1/metrics'),
+        safeFetchJson('/api/v1/supervisor/audit-logs'),
+        safeFetchJson('/api/v1/supervisor/notifications'),
+        safeFetchJson('/api/v1/leads'),
+        safeFetchJson('/api/v1/supervisor/qrcode'),
+        safeFetchJson('/api/v1/analytics'),
+        safeFetchJson('/api/v1/devices')
       ]);
 
-      const [metricsData, logsData, notifsData, leadsData, qrData, analyticsData] = await Promise.all([
-        metricsRes.json(),
-        logsRes.json(),
-        notifsRes.json(),
-        leadsRes.json(),
-        qrRes.json(),
-        analyticsRes.json()
-      ]);
-
-      if (metricsData.success) setMetrics(metricsData.metrics);
-      if (logsData.success) setAuditLogs(logsData.logs);
-      if (notifsData.success) setNotifications(notifsData.notifications);
-      if (leadsData.success) setLeads(leadsData.leads);
-      if (analyticsData.success) setAnalytics(analyticsData.analytics);
-      if (qrData.success) {
+      if (metricsData && metricsData.success) setMetrics(metricsData.metrics);
+      if (logsData && logsData.success) setAuditLogs(logsData.logs);
+      if (notifsData && notifsData.success) setNotifications(notifsData.notifications);
+      if (leadsData && leadsData.leads) setLeads(leadsData.leads);
+      if (analyticsData && analyticsData.success) setAnalytics(analyticsData.analytics);
+      if (devicesData && devicesData.devices) setDevices(devicesData.devices);
+      if (qrData && qrData.success) {
         setQrDataUrl(qrData.qrDataUrl);
         setTargetUrl(qrData.targetUrl);
       }
-    } catch (err) {
-      console.error('Erro ao buscar dados do supervisor:', err);
+    } catch {
+      // Falhas transitórias tratadas silenciosamente durante reconexão
     }
   };
 
@@ -264,144 +302,378 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConne
     ? Math.max(0, Math.floor((new Date(session.scheduledEndTime).getTime() - Date.now()) / 60000))
     : 0;
 
+  type SupervisorTab = 'OVERVIEW' | 'ANALYTICS' | 'DEVICES' | 'TV_ALERT' | 'CONTROLLER' | 'LEADS' | 'AUDIT' | 'QRCODE';
+
+  interface MenuItem {
+    id: SupervisorTab;
+    label: string;
+    description: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badge: string | null;
+  }
+
+  interface MenuSection {
+    group: string;
+    items: MenuItem[];
+  }
+
+  const menuSections: MenuSection[] = [
+    {
+      group: 'OPERAÇÃO DA SALA',
+      items: [
+        {
+          id: 'OVERVIEW',
+          label: 'Sessão & Horários',
+          description: 'Timer, prorrogações e status',
+          icon: Clock,
+          badge: null
+        },
+        {
+          id: 'CONTROLLER',
+          label: 'Controladores',
+          description: 'Operadores de som & presença',
+          icon: Users,
+          badge: null
+        },
+        {
+          id: 'TV_ALERT',
+          label: 'Avisos no Telão',
+          description: 'Transmissão urgente para a TV',
+          icon: Radio,
+          badge: null
+        },
+        {
+          id: 'QRCODE',
+          label: 'QR Code da Mesa',
+          description: 'Acesso instantâneo dos clientes',
+          icon: QrCode,
+          badge: null
+        }
+      ]
+    },
+    {
+      group: 'GESTÃO & INTELIGÊNCIA',
+      items: [
+        {
+          id: 'ANALYTICS',
+          label: 'Inteligência & Métricas',
+          description: 'Gêneros, picos e ranking',
+          icon: BarChart3,
+          badge: null
+        },
+        {
+          id: 'DEVICES',
+          label: 'Dispositivos & Rede',
+          description: 'TV, controles e celulares',
+          icon: Wifi,
+          badge: devices.length > 0 ? String(devices.length) : null
+        },
+        {
+          id: 'LEADS',
+          label: 'Leads & Clientes',
+          description: 'Base LGPD e exportação CSV',
+          icon: Users,
+          badge: leads.length > 0 ? String(leads.length) : null
+        },
+        {
+          id: 'AUDIT',
+          label: 'Trilha de Auditoria',
+          description: 'Log imutável de eventos',
+          icon: FileText,
+          badge: auditLogs.length > 0 ? String(auditLogs.length) : null
+        }
+      ]
+    }
+  ];
+
+  const allMenuItems: MenuItem[] = menuSections.reduce<MenuItem[]>((acc, s) => acc.concat(s.items), []);
+  const currentItem: MenuItem = allMenuItems.find((item) => item.id === activeTab) || allMenuItems[0];
+
   return (
-    <div className="max-w-5xl mx-auto p-3 sm:p-6 space-y-6 pb-24">
-      {/* Header Bar */}
-      <div className="rounded-3xl bg-gradient-to-r from-[#121028] via-[#0d1222] to-[#090d18] border border-amber-500/30 p-5 sm:p-7 flex flex-wrap items-center justify-between gap-5 shadow-2xl relative overflow-hidden ring-1 ring-white/5">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="flex items-center gap-4 relative z-10">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500/20 via-purple-500/20 to-pink-500/10 text-amber-400 border border-amber-500/40 flex items-center justify-center font-bold shadow-xl shadow-amber-900/20">
-            <Shield className="w-8 h-8" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h2 className="text-lg sm:text-xl font-display font-black text-white">Painel do Supervisor / Caixa</h2>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                Autoridade Máxima
-              </span>
+    <div className="w-full max-w-[1440px] mx-auto p-3 sm:p-6 pb-24 space-y-6">
+      {/* Mobile Top App Bar (< lg) */}
+      <div className="lg:hidden flex items-center justify-between p-3.5 rounded-2xl bg-[#0a0e1c] border border-white/10 shadow-xl">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setMobileSidebarOpen(true)}
+            className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 active:scale-95 transition"
+            aria-label="Abrir menu lateral"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <currentItem.icon className="w-4 h-4" />
             </div>
-            <p className="text-xs text-slate-300 mt-1">
-              Unidade: <strong className="text-white font-semibold">{session?.establishmentName || 'VozPlay Lounge'}</strong> • Sessão: <span className="font-mono text-purple-300 font-black px-2 py-0.5 rounded bg-purple-950/60 border border-purple-500/30">{session?.code || 'SLZ-704'}</span>
-            </p>
+            <div>
+              <span className="text-xs font-display font-black text-white block leading-tight">{currentItem.label}</span>
+              <span className="text-[10px] text-slate-400 leading-none">Supervisor / Caixa</span>
+            </div>
           </div>
         </div>
 
-        {/* Action Takeover Button */}
-        <div className="flex items-center gap-2 relative z-10">
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-950/60 text-purple-300 border border-purple-500/30">
+            {session?.code || 'SLZ-704'}
+          </span>
           <button
-            id="btn-sup-takeover"
             onClick={() => setShowTakeoverModal(true)}
-            className="px-4 py-3 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs shadow-xl shadow-rose-600/30 transition flex items-center gap-2 active:scale-95 border border-white/20"
+            className="p-2 rounded-xl bg-rose-600/20 border border-rose-500/30 text-rose-400 active:scale-95 transition"
+            title="Assumir Controle Emergencial"
           >
             <AlertOctagon className="w-4 h-4" />
-            <span>Assumir Controle Emergencial</span>
           </button>
         </div>
       </div>
 
-      {/* Global Feedback Banner */}
-      {feedback && (
-        <div
-          className={`p-4 rounded-2xl border text-xs font-bold flex items-center gap-2.5 shadow-xl transition-all ${
-            feedback.type === 'success'
-              ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-200'
-              : 'bg-rose-950/80 border-rose-500/40 text-rose-200'
-          }`}
-        >
-          {feedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />}
-          <span>{feedback.message}</span>
+      {/* Mobile Sidebar Slide-over Drawer */}
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden flex">
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          <aside className="relative w-80 max-w-[85vw] h-full bg-[#0a0e1c] border-r border-white/10 p-5 overflow-y-auto flex flex-col justify-between shadow-2xl z-10 animate-in slide-in-from-left duration-200">
+            <div className="space-y-6">
+              {/* Header inside drawer */}
+              <div className="flex items-center justify-between pb-4 border-b border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500/20 to-purple-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <Shield className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-display font-black text-white">VozPlay Supervisor</h3>
+                    <p className="text-[10px] text-amber-400/90 font-bold uppercase tracking-wider">Autoridade Máxima</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setMobileSidebarOpen(false)}
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Navigation in drawer */}
+              <div className="space-y-5">
+                {menuSections.map((sec) => (
+                  <div key={sec.group} className="space-y-1.5">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 px-3 block">
+                      {sec.group}
+                    </span>
+                    <div className="space-y-1">
+                      {sec.items.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = activeTab === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => {
+                              setActiveTab(item.id);
+                              setMobileSidebarOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition group ${
+                              isActive
+                                ? 'bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-transparent border-l-4 border-amber-400 text-white font-bold'
+                                : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div
+                                className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition ${
+                                  isActive
+                                    ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40'
+                                    : 'bg-white/[0.04] text-slate-400 group-hover:text-slate-200 border border-white/5'
+                                }`}
+                              >
+                                <Icon className="w-4 h-4" />
+                              </div>
+                              <div className="truncate">
+                                <span className="text-xs block font-bold leading-tight">{item.label}</span>
+                                <span className="text-[10px] text-slate-400 block truncate">{item.description}</span>
+                              </div>
+                            </div>
+                            {item.badge && (
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                {item.badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Bottom Actions inside drawer */}
+            <div className="pt-4 border-t border-white/10 space-y-3">
+              <button
+                onClick={() => {
+                  setMobileSidebarOpen(false);
+                  setShowTakeoverModal(true);
+                }}
+                className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white text-xs font-black flex items-center justify-center gap-2 shadow-lg shadow-rose-900/30"
+              >
+                <AlertOctagon className="w-4 h-4" />
+                <span>Assumir Controle Emergencial</span>
+              </button>
+            </div>
+          </aside>
         </div>
       )}
 
-      {/* Navigation Sub-Tabs */}
-      <div className="flex items-center gap-1.5 p-1.5 rounded-2xl bg-[#0a0e1c] border border-white/10 overflow-x-auto shadow-inner">
-        <button
-          onClick={() => setActiveTab('OVERVIEW')}
-          className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition whitespace-nowrap ${
-            activeTab === 'OVERVIEW'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-          }`}
-        >
-          <Clock className="w-3.5 h-3.5" />
-          <span>Sessão & Horários</span>
-        </button>
+      {/* Main Flex Layout with Desktop Sidebar */}
+      <div className="flex flex-col lg:flex-row items-start gap-6">
+        {/* DESKTOP SIDEBAR */}
+        <aside className="hidden lg:flex w-72 flex-shrink-0 flex-col justify-between rounded-3xl bg-[#0a0e1c] border border-white/10 p-4 shadow-2xl space-y-6 sticky top-20 ring-1 ring-white/5">
+          <div className="space-y-6">
+            {/* Identity & Session Card */}
+            <div className="p-4 rounded-2xl bg-gradient-to-b from-[#131728] to-[#0c101d] border border-amber-500/20 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-28 h-28 bg-amber-500/5 rounded-full blur-2xl pointer-events-none" />
+              <div className="flex items-center gap-3 mb-2.5">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500/20 to-purple-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center font-bold shadow-md shadow-amber-950/40">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-display font-black text-white leading-tight">VozPlay Supervisor</h3>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30 inline-block mt-0.5">
+                    Autoridade Máxima
+                  </span>
+                </div>
+              </div>
 
-        <button
-          onClick={() => setActiveTab('ANALYTICS')}
-          className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition whitespace-nowrap ${
-            activeTab === 'ANALYTICS'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-          }`}
-        >
-          <BarChart3 className="w-3.5 h-3.5" />
-          <span>Inteligência & Métricas</span>
-        </button>
+              <div className="pt-2 border-t border-white/[0.08] flex items-center justify-between text-xs">
+                <div className="text-slate-400 text-[11px] truncate">
+                  {session?.establishmentName || 'VozPlay Lounge'}
+                </div>
+                <span className="font-mono text-purple-300 font-black px-1.5 py-0.5 rounded bg-purple-950/70 border border-purple-500/30 text-[10px]">
+                  {session?.code || 'SLZ-704'}
+                </span>
+              </div>
+            </div>
 
-        <button
-          onClick={() => setActiveTab('TV_ALERT')}
-          className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition whitespace-nowrap ${
-            activeTab === 'TV_ALERT'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-          }`}
-        >
-          <Radio className="w-3.5 h-3.5" />
-          <span>Aviso na TV</span>
-        </button>
+            {/* Navigation Groups */}
+            <div className="space-y-5">
+              {menuSections.map((sec) => (
+                <div key={sec.group} className="space-y-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 px-3 block">
+                    {sec.group}
+                  </span>
+                  <div className="space-y-1">
+                    {sec.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = activeTab === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => setActiveTab(item.id)}
+                          className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition group ${
+                            isActive
+                              ? 'bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-transparent border-l-4 border-amber-400 text-white font-bold shadow-sm'
+                              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition ${
+                                isActive
+                                  ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40 shadow-sm'
+                                  : 'bg-white/[0.04] text-slate-400 group-hover:text-slate-200 border border-white/5'
+                              }`}
+                            >
+                              <Icon className="w-4 h-4" />
+                            </div>
+                            <div className="truncate">
+                              <span className="text-xs block font-bold leading-tight">{item.label}</span>
+                              <span className="text-[10px] text-slate-400 block truncate">{item.description}</span>
+                            </div>
+                          </div>
+                          {item.badge ? (
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              {item.badge}
+                            </span>
+                          ) : (
+                            isActive && <ChevronRight className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
-        <button
-          onClick={() => setActiveTab('CONTROLLER')}
-          className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition whitespace-nowrap ${
-            activeTab === 'CONTROLLER'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-          }`}
-        >
-          <Users className="w-3.5 h-3.5" />
-          <span>Controladores</span>
-        </button>
+          {/* Sidebar Footer Widget */}
+          <div className="space-y-3 pt-4 border-t border-white/10">
+            {/* Session Time Widget */}
+            <div className="p-3 rounded-2xl bg-black/40 border border-white/5 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-400" />
+                <span className="text-slate-300 font-bold text-[11px]">{remainingTimeMinutes}m restantes</span>
+              </div>
+              <button
+                onClick={() => handleExtendSession(15)}
+                className="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[10px] font-black transition active:scale-95"
+              >
+                +15m
+              </button>
+            </div>
 
-        <button
-          onClick={() => setActiveTab('QRCODE')}
-          className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition whitespace-nowrap ${
-            activeTab === 'QRCODE'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-          }`}
-        >
-          <QrCode className="w-3.5 h-3.5" />
-          <span>QR Code da Mesa</span>
-        </button>
+            {/* Emergency Takeover Button */}
+            <button
+              id="btn-sup-takeover"
+              onClick={() => setShowTakeoverModal(true)}
+              className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs shadow-lg shadow-rose-950/40 transition flex items-center justify-center gap-2 active:scale-95 border border-white/20"
+            >
+              <AlertOctagon className="w-4 h-4" />
+              <span>Takeover Emergencial</span>
+            </button>
+          </div>
+        </aside>
 
-        <button
-          onClick={() => setActiveTab('LEADS')}
-          className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition whitespace-nowrap ${
-            activeTab === 'LEADS'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-          }`}
-        >
-          <Users className="w-3.5 h-3.5" />
-          <span>Leads & Clientes</span>
-          <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-black/40 text-inherit font-black">
-            {leads.length}
-          </span>
-        </button>
+        {/* MAIN WORKSPACE CONTENT */}
+        <main className="flex-1 min-w-0 w-full space-y-6">
+          {/* Top Section Header */}
+          <div className="rounded-3xl bg-gradient-to-r from-[#121028] via-[#0d1222] to-[#090d18] border border-amber-500/30 p-5 sm:p-6 flex flex-wrap items-center justify-between gap-4 shadow-xl relative overflow-hidden ring-1 ring-white/5">
+            <div className="flex items-center gap-3.5 relative z-10">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-purple-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center font-bold shadow-md shadow-amber-900/20">
+                <currentItem.icon className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">Painel do Supervisor</span>
+                  <span className="text-slate-600">•</span>
+                  <span className="text-[10px] text-slate-400">{currentItem.description}</span>
+                </div>
+                <h2 className="text-lg sm:text-xl font-display font-black text-white">{currentItem.label}</h2>
+              </div>
+            </div>
 
-        <button
-          onClick={() => setActiveTab('AUDIT')}
-          className={`py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition whitespace-nowrap ${
-            activeTab === 'AUDIT'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/30'
-              : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
-          }`}
-        >
-          <FileText className="w-3.5 h-3.5" />
-          <span>Auditoria</span>
-        </button>
-      </div>
+            {/* Quick Status Pill */}
+            <div className="flex items-center gap-2 relative z-10">
+              <span className="px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/10 text-xs font-semibold text-slate-300 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Sessão Ativa: <strong className="text-white">{session?.code || 'SLZ-704'}</strong></span>
+              </span>
+            </div>
+          </div>
+
+          {/* Global Feedback Banner */}
+          {feedback && (
+            <div
+              className={`p-4 rounded-2xl border text-xs font-bold flex items-center gap-2.5 shadow-xl transition-all ${
+                feedback.type === 'success'
+                  ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-200'
+                  : 'bg-rose-950/80 border-rose-500/40 text-rose-200'
+              }`}
+            >
+              {feedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />}
+              <span>{feedback.message}</span>
+            </div>
+          )}
 
       {/* TAB 1: OVERVIEW & SCHEDULED END TIMES (Section 29) */}
       {activeTab === 'OVERVIEW' && (
@@ -503,6 +775,158 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConne
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: DEVICES & NETWORK TOPOLOGY (PRD Seções 36, 37, 56, 61) */}
+      {activeTab === 'DEVICES' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base sm:text-lg font-display font-black text-white">Topologia de Dispositivos & Rede Multi-Cliente</h3>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Rastreamento autoritativo de conexões TV, Mesa do Operador e Smartphones dos Participantes.
+              </p>
+            </div>
+            <button
+              onClick={fetchSupervisorData}
+              className="px-4 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-xs text-slate-200 font-bold transition border border-white/10 active:scale-95 flex items-center gap-2"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Atualizar Dispositivos</span>
+            </button>
+          </div>
+
+          {/* Quick Node Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <div className="p-5 rounded-3xl bg-[#0d1222] border border-white/10 ring-1 ring-white/5 shadow-xl">
+              <div className="flex items-center justify-between text-slate-400 text-xs mb-2 font-bold">
+                <span>TV Principal de Palco</span>
+                <Tv className="w-4 h-4 text-pink-400" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${tvConnected ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'}`} />
+                <span className="text-xl font-display font-black text-white">
+                  {tvConnected ? 'TV Conectada' : 'Aguardando TV'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                Heartbeat a cada 4s • Modo TV Lounge 10-foot
+              </p>
+            </div>
+
+            <div className="p-5 rounded-3xl bg-[#0d1222] border border-white/10 ring-1 ring-white/5 shadow-xl">
+              <div className="flex items-center justify-between text-slate-400 text-xs mb-2 font-bold">
+                <span>Mesa de Som / Controlador</span>
+                <Laptop className="w-4 h-4 text-purple-400" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                <span className="text-xl font-display font-black text-white">
+                  {session?.activeControllerName ? 'Operador Ativo' : 'Não Atribuído'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1.5 font-mono">
+                {session?.activeControllerName || 'Aguardando autorização'}
+              </p>
+            </div>
+
+            <div className="p-5 rounded-3xl bg-[#0d1222] border border-white/10 ring-1 ring-white/5 shadow-xl">
+              <div className="flex items-center justify-between text-slate-400 text-xs mb-2 font-bold">
+                <span>Smartphones Conectados</span>
+                <Smartphone className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                <span className="text-xl font-display font-black text-white">
+                  {devices.filter((d) => d.role === 'PARTICIPANT').length} Celulares
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                Suporte híbrido a PWA e APK Nativo
+              </p>
+            </div>
+          </div>
+
+          {/* Connected Devices Table */}
+          <div className="rounded-3xl bg-[#0d1222] border border-white/10 overflow-hidden shadow-2xl ring-1 ring-white/5">
+            <div className="p-5 bg-[#0a0e1c] border-b border-white/[0.08] flex items-center justify-between">
+              <h4 className="text-xs font-black uppercase tracking-wider text-slate-200 flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-purple-400" />
+                Nós de Rede Registrados na Sessão ({devices.length})
+              </h4>
+              <span className="text-[11px] font-mono text-purple-300">
+                Sessão {session?.code}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-[#080c16] text-slate-400 border-b border-white/[0.08] uppercase tracking-wider text-[10px] font-black font-mono">
+                  <tr>
+                    <th className="p-4">Dispositivo</th>
+                    <th className="p-4">Papel / Função</th>
+                    <th className="p-4">Tipo de Cliente</th>
+                    <th className="p-4">Plataforma & Ambiente</th>
+                    <th className="p-4">Versão</th>
+                    <th className="p-4">Última Atividade</th>
+                    <th className="p-4 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.06]">
+                  {devices.map((dev) => (
+                    <tr key={dev.deviceId} className="hover:bg-white/[0.03] transition">
+                      <td className="p-4 font-mono font-bold text-white">
+                        <div className="flex items-center gap-2">
+                          {dev.role === 'TV' ? <Tv className="w-4 h-4 text-pink-400 flex-shrink-0" /> :
+                           dev.role === 'CONTROLLER' ? <Laptop className="w-4 h-4 text-purple-400 flex-shrink-0" /> :
+                           dev.role === 'SUPERVISOR' ? <Shield className="w-4 h-4 text-amber-400 flex-shrink-0" /> :
+                           <Smartphone className="w-4 h-4 text-emerald-400 flex-shrink-0" />}
+                          <span className="truncate max-w-[120px]">{dev.deviceId}</span>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                          dev.role === 'TV' ? 'bg-pink-500/20 text-pink-300 border-pink-500/40' :
+                          dev.role === 'CONTROLLER' ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' :
+                          dev.role === 'SUPERVISOR' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+                          'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        }`}>
+                          {dev.role}
+                        </span>
+                      </td>
+                      <td className="p-4 font-bold text-slate-200">
+                        {dev.clientType === 'ANDROID_TV' ? 'Android TV Nativo' :
+                         dev.clientType === 'ANDROID' ? 'APK Android' : 'PWA Web'}
+                      </td>
+                      <td className="p-4 text-slate-300 font-medium">{dev.platform}</td>
+                      <td className="p-4 font-mono text-purple-300 text-[11px]">{dev.clientVersion}</td>
+                      <td className="p-4 text-slate-400 font-mono text-[11px]">
+                        {new Date(dev.lastSeenAt).toLocaleTimeString('pt-BR')}
+                      </td>
+                      <td className="p-4 text-right">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          Online
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Architectural Notes Box (PRD Seções 36, 37 e 56) */}
+          <div className="p-5 rounded-3xl bg-[#080c16] border border-white/10 text-xs text-slate-300 space-y-2 ring-1 ring-white/5">
+            <h4 className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-amber-400" />
+              Diretriz Arquitetural de Desacoplamento Multi-Dispositivo (Seções 36 e 56 do PRD)
+            </h4>
+            <p className="leading-relaxed text-slate-400">
+              O sistema opera com separação estrita de camadas. A migração ou convivência de aplicações PWA com aplicativos empacotados APK para Android e Android TV ocorre sem alterações de regras de negócio ou de esquema de banco de dados. Os contratos de dados REST e WebSocket permanecem idênticos e garantem interoperabilidade contínua.
+            </p>
           </div>
         </div>
       )}
@@ -896,6 +1320,9 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConne
           </div>
         </div>
       )}
+
+        </main>
+      </div>
 
       {/* EMERGENCY TAKEOVER MODAL (Section 31) */}
       {showTakeoverModal && (

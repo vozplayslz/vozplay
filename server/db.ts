@@ -246,6 +246,15 @@ const INITIAL_CATALOG: Music[] = [
   }
 ];
 
+export interface DeviceInfo {
+  deviceId: string;
+  clientType: 'PWA' | 'ANDROID' | 'ANDROID_TV';
+  role: 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV';
+  platform: string;
+  clientVersion: string;
+  lastSeenAt: string;
+}
+
 class VozPlayDB {
   public catalog: Music[] = [...INITIAL_CATALOG];
   public session: Session;
@@ -254,6 +263,7 @@ class VozPlayDB {
   public identities: Map<string, ParticipantIdentity> = new Map(); // normalizedWhatsapp -> Identity
   public playlists: Map<string, PlaylistItem[]> = new Map(); // participantId -> items
   public queue: QueueItem[] = [];
+  public devices: Map<string, DeviceInfo> = new Map(); // deviceId -> DeviceInfo (Section 36 & 37)
   public playbackState: {
     status: PlaybackStatus;
     currentQueueItemId: string | null;
@@ -438,7 +448,42 @@ class VozPlayDB {
     this.queue = [q1, q2];
     this.metrics.totalSongsQueued = 2;
 
-    this.logAudit('SYSTEM', 'System', 'SESSION_BOOTSTRAP', 'Sessão inicial carregada com fila demonstrativa.');
+    // Seed initial device topology (PRD Seções 36, 37 e 56)
+    const nowIso = new Date().toISOString();
+    this.devices.set('dev-tv-lounge', {
+      deviceId: 'dev-tv-lounge',
+      clientType: 'ANDROID_TV',
+      role: 'TV',
+      platform: 'Android TV 12 (TCL Smart TV 65")',
+      clientVersion: '1.2.0-tv',
+      lastSeenAt: nowIso
+    });
+    this.devices.set('dev-ctrl-booth', {
+      deviceId: 'dev-ctrl-booth',
+      clientType: 'PWA',
+      role: 'CONTROLLER',
+      platform: 'iPadOS / Safari Tablet (Cabine de Som)',
+      clientVersion: '1.2.0-web',
+      lastSeenAt: nowIso
+    });
+    this.devices.set('dev-part-joao', {
+      deviceId: 'dev-part-joao',
+      clientType: 'PWA',
+      role: 'PARTICIPANT',
+      platform: 'Android 14 / Chrome Mobile (Mesa 04)',
+      clientVersion: '1.2.0-web',
+      lastSeenAt: nowIso
+    });
+    this.devices.set('dev-part-maria', {
+      deviceId: 'dev-part-maria',
+      clientType: 'ANDROID',
+      role: 'PARTICIPANT',
+      platform: 'Android APK Nativo (Mesa 08)',
+      clientVersion: '1.2.0-apk',
+      lastSeenAt: nowIso
+    });
+
+    this.logAudit('SYSTEM', 'System', 'SESSION_BOOTSTRAP', 'Sessão inicial carregada com fila demonstrativa e topologia de dispositivos.');
   }
 
   public logAudit(actorRole: any, actorName: string, action: string, details: string) {
@@ -471,14 +516,20 @@ class VozPlayDB {
   }
 
   /**
-   * Deterministic Fair Round-Robin Queue Insertion (Section 18)
-   * Prevents a single participant from monopolizing the session.
+   * Deterministic Fair Round-Robin Queue Insertion (PRD Seção 18 e 19)
+   * Impede monopólio da sessão intercalando ciclos por participante.
+   * Exemplo do PRD:
+   * João: A, B, C | Maria: D, E | Pedro: F
+   * Resultado na Fila: João A, Maria D, Pedro F, João B, Maria E, João C
    */
   public addSongToQueue(participant: Participant, music: Music, version: any, toneOffset: number = 0): QueueItem {
-    // Count how many songs this participant already has QUEUED
+    // Quantas músicas este participante já tem com status QUEUED
     const participantQueuedCount = this.queue.filter(
       item => item.participantId === participant.id && item.status === 'QUEUED'
     ).length;
+
+    // Esta nova música fará parte do ciclo (round) de número N deste participante
+    const targetRound = participantQueuedCount + 1;
 
     const newItem: QueueItem = {
       id: 'q-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
@@ -497,22 +548,31 @@ class VozPlayDB {
       orderIndex: this.queue.length
     };
 
-    // Calculate insertion index using round-robin cycles
-    // If other participants have fewer pending songs, place after their current cycle
-    let insertIndex = this.queue.length;
-    let countedSameRounds = 0;
+    // Calcular índice de inserção determinístico:
+    // A música é posicionada após todas as músicas do ciclo <= targetRound,
+    // mas antes de qualquer música de ciclo > targetRound (evitando monopólio).
+    const participantRoundTracker = new Map<string, number>();
+    let insertIndex = -1;
 
     for (let i = 0; i < this.queue.length; i++) {
       const q = this.queue[i];
       if (q.status === 'QUEUED') {
-        if (q.participantId === participant.id) {
-          countedSameRounds++;
+        const itemRound = (participantRoundTracker.get(q.participantId) || 0) + 1;
+        participantRoundTracker.set(q.participantId, itemRound);
+
+        if (itemRound > targetRound) {
+          insertIndex = i;
+          break;
         }
       }
     }
 
-    // Append to queue and re-index
-    this.queue.push(newItem);
+    if (insertIndex !== -1) {
+      this.queue.splice(insertIndex, 0, newItem);
+    } else {
+      this.queue.push(newItem);
+    }
+
     this.reindexQueue();
 
     this.metrics.totalSongsQueued++;
@@ -520,7 +580,7 @@ class VozPlayDB {
       'PARTICIPANT',
       participant.displayName,
       'QUEUE_ADD',
-      `Música adicionada: ${music.title} (${version.style})`
+      `Música adicionada à fila rotativa (Ciclo ${targetRound}): ${music.title} (${version.style})`
     );
 
     return newItem;

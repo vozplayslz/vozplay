@@ -36,6 +36,15 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
   const [transitionCountdown, setTransitionCountdown] = useState(6);
   const [reactions, setReactions] = useState<FloatingReaction[]>([]);
   const [activeSoundBanner, setActiveSoundBanner] = useState<{ soundType: string; label: string } | null>(null);
+  const [tvQrUrl, setTvQrUrl] = useState<string>('');
+  const [completedPerformance, setCompletedPerformance] = useState<{
+    singer: string;
+    title: string;
+    artist: string;
+    score: number;
+    badge: string;
+    applauseCount: number;
+  } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -80,6 +89,29 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
   useEffect(() => {
     fetchTVSession();
 
+    // Register TV Device Handshake (PRD Seções 36 & 37)
+    fetch('/api/v1/devices/handshake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: 'dev-tv-' + (typeof window !== 'undefined' ? window.location.hostname : 'tv'),
+        clientType: 'ANDROID_TV',
+        role: 'TV',
+        platform: navigator.userAgent.includes('Android') ? 'Android TV 12' : 'Web TV Player (Chrome 10-foot)',
+        clientVersion: '1.2.0-tv'
+      })
+    }).catch(() => {});
+
+    // Fetch official session QR code for screen corner display
+    fetch('/api/v1/supervisor/qrcode')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.qrDataUrl) {
+          setTvQrUrl(data.qrDataUrl);
+        }
+      })
+      .catch(() => {});
+
     // Heartbeat every 4 seconds to notify backend TV is alive and get latest sanitized DTO
     const interval = setInterval(async () => {
       fetchTVSession();
@@ -115,8 +147,31 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
 
   const handleSongEnded = async () => {
     if (isTransitioning) return;
+    const current = tvData?.currentSong;
+    if (current) {
+      const generatedScore = Math.floor(90 + Math.random() * 10);
+      const badges = [
+        'VOZ DE OURO ⭐⭐⭐⭐⭐',
+        'SHOW DE CARISMA 🔥🔥🔥',
+        'AFINAÇÃO IMPECÁVEL 🎤✨',
+        'ESTRELA DO LOUNGE 🌟👑'
+      ];
+      setCompletedPerformance({
+        singer: current.participantDisplayName,
+        title: current.title,
+        artist: current.artist,
+        score: generatedScore,
+        badge: badges[Math.floor(Math.random() * badges.length)],
+        applauseCount: Math.max(15, reactions.length * 3 + Math.floor(Math.random() * 30))
+      });
+      // Trigger soundboard applause effect automatically
+      try {
+        playDJAudioEffect('applause');
+      } catch (e) {}
+    }
+
     setIsTransitioning(true);
-    setTransitionCountdown(6);
+    setTransitionCountdown(7);
 
     const timer = setInterval(() => {
       setTransitionCountdown((prev) => {
@@ -126,6 +181,7 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
           fetch('/api/v1/controller/next', { method: 'POST' }).then(() => {
             fetchTVSession();
             setIsTransitioning(false);
+            setCompletedPerformance(null);
           });
           return 0;
         }
@@ -137,8 +193,9 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
   const fetchTVSession = async () => {
     try {
       const res = await fetch('/api/v1/tv/session');
+      if (!res.ok) return;
       const json = await res.json();
-      if (json.success) {
+      if (json && json.success) {
         setTvData(json.data);
         // Sync master volume to YouTube player iframe (Section 24)
         if (iframeRef.current?.contentWindow && typeof json.data.volume === 'number') {
@@ -152,8 +209,8 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
           );
         }
       }
-    } catch (err) {
-      console.error('Erro ao sincronizar TV DTO:', err);
+    } catch {
+      // Reconexão transitória
     }
   };
 
@@ -229,27 +286,70 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
         </div>
       </div>
 
-      {/* SECTION 27: VISUAL TRANSITION SCREEN BETWEEN SONGS */}
-      {isTransitioning && nextSong ? (
-        <div className="relative z-20 my-auto py-12 flex flex-col items-center max-w-3xl mx-auto w-full text-center animate-in zoom-in-95 duration-500">
-          <div className="w-24 h-24 rounded-3xl bg-gradient-to-tr from-pink-500/20 via-purple-500/20 to-indigo-500/20 border-2 border-pink-500/40 flex items-center justify-center text-pink-400 mb-6 shadow-2xl shadow-pink-500/25 backdrop-blur-md">
-            <Sparkles className="w-12 h-12 animate-spin text-pink-400" style={{ animationDuration: '4s' }} />
+      {/* SECTION 27 & 40: CELEBRATION & VISUAL TRANSITION SCREEN BETWEEN SONGS */}
+      {isTransitioning ? (
+        <div className="relative z-20 my-auto py-8 sm:py-12 flex flex-col items-center max-w-4xl mx-auto w-full text-center animate-in zoom-in-95 duration-500">
+          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-gradient-to-tr from-amber-500/20 via-pink-500/20 to-purple-500/20 border-2 border-amber-500/40 flex items-center justify-center text-amber-400 mb-5 shadow-2xl shadow-amber-500/25 backdrop-blur-md">
+            <Sparkles className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-amber-400" style={{ animationDuration: '4s' }} />
           </div>
 
-          <span className="text-xs sm:text-sm font-black uppercase tracking-widest text-indigo-400 mb-2">
+          <span className="text-xs sm:text-sm font-black uppercase tracking-widest text-amber-400 mb-1">
             Show Concluído com Sucesso!
           </span>
-          <h2 className="text-3xl sm:text-5xl md:text-6xl font-display font-black text-white mb-3 tracking-tight">
-            Prepare-se, <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-purple-400">{nextSong.participantDisplayName}</span>!
-          </h2>
-          <p className="text-lg sm:text-2xl text-slate-200 font-semibold mb-6">
-            Você vai cantar: <strong className="text-white font-bold">{nextSong.title}</strong> — <span className="text-purple-300">{nextSong.artist}</span>
-          </p>
 
-          <div className="inline-flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/10 border border-white/20 backdrop-blur-xl shadow-2xl">
-            <span className="text-xs text-slate-300 uppercase tracking-wider font-bold">Iniciando em</span>
-            <span className="font-mono text-3xl font-black text-pink-400">{transitionCountdown}s</span>
-          </div>
+          {completedPerformance && (
+            <div className="space-y-3 mb-6">
+              <h2 className="text-2xl sm:text-4xl md:text-5xl font-display font-black text-white tracking-tight">
+                Parabéns, <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-pink-400 to-purple-400">{completedPerformance.singer}</span>!
+              </h2>
+              <p className="text-sm sm:text-lg text-slate-300">
+                Você cantou: <strong className="text-white font-semibold">{completedPerformance.title}</strong> — <span className="text-purple-300">{completedPerformance.artist}</span>
+              </p>
+
+              {/* Pontuação & Aplausômetro */}
+              <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 pt-2">
+                <div className="px-5 py-2.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center gap-2.5 shadow-xl">
+                  <span className="text-xs uppercase font-bold text-amber-300">Pontuação VozPlay:</span>
+                  <span className="text-2xl sm:text-3xl font-mono font-black text-amber-300">{completedPerformance.score}</span>
+                  <span className="text-xs text-amber-400/80 font-bold">/100 pts</span>
+                </div>
+                <div className="px-4 py-2.5 rounded-2xl bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs font-black tracking-wide">
+                  {completedPerformance.badge}
+                </div>
+                <div className="px-4 py-2.5 rounded-2xl bg-pink-500/15 border border-pink-500/30 text-pink-300 text-xs font-black flex items-center gap-1.5">
+                  <span>👏</span>
+                  <span>{completedPerformance.applauseCount} Aplausos da Galera</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {nextSong ? (
+            <div className="p-6 rounded-3xl bg-gradient-to-r from-[#11162a]/90 to-[#19102c]/90 border border-purple-500/30 backdrop-blur-xl max-w-xl w-full shadow-2xl space-y-3">
+              <span className="text-[11px] font-black uppercase tracking-widest text-purple-400 block">
+                Prepare seu Microfone:
+              </span>
+              <h3 className="text-xl sm:text-3xl font-display font-black text-white">
+                {nextSong.participantDisplayName}
+              </h3>
+              <p className="text-sm sm:text-base text-slate-300">
+                {nextSong.title} — <span className="text-purple-300 font-semibold">{nextSong.artist}</span>
+              </p>
+              <div className="inline-flex items-center gap-2.5 px-5 py-2 rounded-xl bg-white/10 text-white font-mono text-sm font-bold">
+                <span>Iniciando em:</span>
+                <span className="text-pink-400 text-lg font-black">{transitionCountdown}s</span>
+              </div>
+            </div>
+          ) : (
+            <div className="p-6 rounded-3xl bg-[#0c101d]/90 border border-white/10 backdrop-blur-xl max-w-md w-full shadow-2xl space-y-2">
+              <span className="text-xs font-black uppercase tracking-wider text-emerald-400 block">
+                Fila de Músicas Livre!
+              </span>
+              <p className="text-sm text-slate-300">
+                Aponte a câmera para o QR Code da mesa e mande a sua música para o palco!
+              </p>
+            </div>
+          )}
         </div>
       ) : (
         /* MAIN SCREEN STAGE: YOUTUBE EMBED PLAYER & SINGER BANNER */
@@ -296,33 +396,50 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
             </div>
           ) : (
             /* IDLE / WAITING SCREEN */
-            <div className="text-center py-16 px-6 sm:px-12 rounded-3xl bg-[#0d1222]/80 border border-white/10 backdrop-blur-xl max-w-3xl w-full shadow-2xl relative overflow-hidden">
+            <div className="text-center py-12 px-6 sm:px-12 rounded-3xl bg-[#0d1222]/85 border border-white/10 backdrop-blur-xl max-w-3xl w-full shadow-2xl relative overflow-hidden ring-1 ring-white/10">
               <div className="absolute -top-20 -left-20 w-56 h-56 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
               <div className="absolute -bottom-20 -right-20 w-56 h-56 bg-pink-600/15 rounded-full blur-3xl pointer-events-none" />
 
-              <div className="relative z-10">
-                <div className="w-24 h-24 rounded-3xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-pink-600 p-0.5 mx-auto mb-6 shadow-2xl shadow-purple-600/30">
+              <div className="relative z-10 space-y-6">
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-pink-600 p-0.5 mx-auto shadow-2xl shadow-purple-600/30">
                   <div className="w-full h-full bg-[#0a0e1c] rounded-[22px] flex items-center justify-center text-white">
-                    <Music2 className="w-12 h-12 text-purple-300" />
+                    <Music2 className="w-10 h-10 text-purple-300" />
                   </div>
                 </div>
-                <h2 className="text-2xl sm:text-5xl font-display font-black text-white mb-3 tracking-tight">
-                  Palco VozPlay Disponível
-                </h2>
-                <p className="text-sm sm:text-base text-slate-300 max-w-lg mx-auto leading-relaxed">
-                  Aponte a câmera do seu celular para o QR Code da sua mesa, acesse o catálogo em alta definição e mande a sua música para a TV!
-                </p>
+
+                <div>
+                  <h2 className="text-2xl sm:text-4xl md:text-5xl font-display font-black text-white mb-2 tracking-tight">
+                    Palco VozPlay Disponível
+                  </h2>
+                  <p className="text-sm sm:text-base text-slate-300 max-w-lg mx-auto leading-relaxed">
+                    Aponte a câmera do seu celular para o QR Code da sua mesa, acesse o catálogo completo e escolha a sua música para cantar na TV!
+                  </p>
+                </div>
+
+                {tvQrUrl && (
+                  <div className="inline-block p-3.5 bg-white rounded-2xl shadow-2xl shadow-purple-500/20 ring-4 ring-purple-500/20">
+                    <img src={tvQrUrl} alt="QR Code da Mesa" className="w-36 h-36 sm:w-44 sm:h-44 object-contain rounded-lg" />
+                    <span className="block text-[10px] font-black uppercase tracking-wider text-slate-800 mt-1">
+                      Mesa • Conecte-se
+                    </span>
+                  </div>
+                )}
 
                 {nextSong && (
-                  <div className="mt-8 p-5 rounded-2xl bg-gradient-to-r from-purple-950/60 to-indigo-950/60 border border-purple-500/30 inline-block text-left shadow-xl">
-                    <span className="text-[11px] font-black uppercase tracking-wider text-purple-300 block mb-1">
-                      A Seguir no Palco:
-                    </span>
-                    <span className="text-xl font-display font-black text-white block">
-                      {nextSong.participantDisplayName}
-                    </span>
-                    <span className="text-sm text-slate-300 font-semibold">
-                      {nextSong.title} • {nextSong.artist}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/60 to-indigo-950/60 border border-purple-500/30 max-w-md mx-auto text-left shadow-xl flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-purple-300 block">
+                        A Seguir no Palco:
+                      </span>
+                      <span className="text-base font-display font-black text-white block">
+                        {nextSong.participantDisplayName}
+                      </span>
+                      <span className="text-xs text-slate-300 font-medium">
+                        {nextSong.title} • {nextSong.artist}
+                      </span>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                      1° da Fila
                     </span>
                   </div>
                 )}
@@ -362,11 +479,15 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
         )}
 
         {/* Mini QR Code corner prompt */}
-        <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10">
-          <QrCode className="w-5 h-5 text-pink-400" />
+        <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 shadow-lg">
+          {tvQrUrl ? (
+            <img src={tvQrUrl} alt="QR Code TV" className="w-8 h-8 rounded-lg bg-white p-0.5 shadow-sm" />
+          ) : (
+            <QrCode className="w-5 h-5 text-pink-400" />
+          )}
           <div className="text-left text-[11px] leading-tight">
-            <span className="text-slate-300 font-semibold block">Peça sua música</span>
-            <span className="text-slate-500 font-mono text-[10px]">vozplay.ai.slz.br</span>
+            <span className="text-slate-200 font-bold block">Peça sua música</span>
+            <span className="text-pink-400 font-mono text-[10px]">Aponte a câmera</span>
           </div>
         </div>
       </div>

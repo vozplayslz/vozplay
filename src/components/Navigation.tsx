@@ -5,9 +5,10 @@
  * VOZPLAY - Multi-Client Interface Switcher & Global Header
  */
 
-import React from 'react';
-import { Smartphone, Sliders, Shield, Tv, Wifi, WifiOff, Globe, Disc3 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Smartphone, Sliders, Shield, Tv, Wifi, WifiOff, Globe, Disc3, HelpCircle } from 'lucide-react';
 import { PWAInstallButton } from './common/PWAInstallButton.js';
+import { HelpModal } from './common/HelpModal.js';
 import { Session } from '../types.js';
 
 export type ActiveTab = 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV' | 'TRACKER';
@@ -27,6 +28,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   wsConnected,
   tvConnected
 }) => {
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const tabs = [
     {
       id: 'PARTICIPANT' as ActiveTab,
@@ -134,6 +136,17 @@ export const Navigation: React.FC<NavigationProps> = ({
 
           {/* PWA Install Action */}
           <PWAInstallButton />
+
+          {/* Central de Ajuda & Guia Operacional */}
+          <button
+            id="btn-open-help"
+            onClick={() => setIsHelpOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white border border-white/10 transition active:scale-95 shadow-sm"
+            title="Abrir Central de Ajuda e Guias Operacionais"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-purple-400" />
+            <span className="hidden sm:inline">Ajuda & Guias</span>
+          </button>
         </div>
       </div>
 
@@ -166,6 +179,21 @@ export const Navigation: React.FC<NavigationProps> = ({
           })}
         </div>
       </div>
+
+      {/* Modal de Ajuda Interativo */}
+      <HelpModal
+        isOpen={isHelpOpen}
+        onClose={() => setIsHelpOpen(false)}
+        defaultSection={
+          activeTab === 'CONTROLLER'
+            ? 'CONTROLLER'
+            : activeTab === 'SUPERVISOR'
+            ? 'SUPERVISOR'
+            : activeTab === 'TV'
+            ? 'TV'
+            : 'PARTICIPANT'
+        }
+      />
     </header>
   );
 };

@@ -26,16 +26,18 @@ import {
   Info,
   KeyRound,
   Sparkles,
-  Radio
+  Radio,
+  RefreshCw
 } from 'lucide-react';
 import { Participant, Music, QueueItem, PlaylistItem, MusicVersion } from '../../types.js';
 
 interface ParticipantViewProps {
   sessionCode?: string;
   onQueueUpdated?: () => void;
+  onOpenTracker?: (queueItemId: string) => void;
 }
 
-export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 'SLZ-704' }) => {
+export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 'SLZ-704', onQueueUpdated, onOpenTracker }) => {
   // Participant Identity State
   const [participant, setParticipant] = useState<Participant | null>(null);
   const [nameInput, setNameInput] = useState('');
@@ -43,6 +45,9 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
   const [consentMarketing, setConsentMarketing] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [registerError, setRegisterError] = useState('');
+
+  // Audience Live Reaction State (PRD Section 48 & 49)
+  const [sendingReaction, setSendingReaction] = useState<string | null>(null);
 
   // Presence Code Verification State
   const [presenceCodeInput, setPresenceCodeInput] = useState('');
@@ -70,6 +75,22 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [actionFeedback, setActionFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  // Participant Persistent History (PRD Seção 41)
+  const [participantHistory, setParticipantHistory] = useState<{
+    hasPersistentIdentity: boolean;
+    totalSung: number;
+    totalParticipations: number;
+    firstSeen?: string;
+    historyItems: Array<{
+      musicTitle: string;
+      musicArtist: string;
+      versionStyle: string;
+      completedAt: string;
+      sungCount: number;
+      badgeText: string;
+    }>;
+  } | null>(null);
+
   // Share Turn Modal
   const [shareModalItem, setShareModalItem] = useState<QueueItem | null>(null);
   const [copiedShare, setCopiedShare] = useState(false);
@@ -82,10 +103,22 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
   const [customStyle, setCustomStyle] = useState('Karaokê');
   const [isSubmittingCustom, setIsSubmittingCustom] = useState(false);
 
-  // Load Catalog on mount
+  // Load Catalog and register device handshake on mount
   useEffect(() => {
     fetchCatalog();
     fetchQueue();
+
+    fetch('/api/v1/devices/handshake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: 'pwa-' + (typeof window !== 'undefined' ? (window.localStorage.getItem('vozplay_device_id') || Math.random().toString(36).substring(2, 9)) : 'client'),
+        clientType: typeof navigator !== 'undefined' && navigator.userAgent.includes('Android') && !navigator.userAgent.includes('Chrome') ? 'ANDROID' : 'PWA',
+        role: 'PARTICIPANT',
+        platform: typeof navigator !== 'undefined' ? (navigator.userAgent.includes('iPhone') ? 'iOS Safari PWA' : navigator.userAgent.includes('Android') ? 'Android Chrome PWA' : 'Web Mobile') : 'Mobile',
+        clientVersion: '1.2.0-pwa'
+      })
+    }).catch(() => {});
   }, []);
 
   // Poll queue and playlist periodically
@@ -103,13 +136,14 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
     try {
       setIsLoadingCatalog(true);
       const res = await fetch(`/api/v1/music?q=${encodeURIComponent(q)}&genre=${encodeURIComponent(g)}`);
+      if (!res.ok) return;
       const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         setCatalog(data.data);
         if (data.genres) setGenres(data.genres);
       }
-    } catch (err) {
-      console.error('Erro ao buscar catálogo:', err);
+    } catch {
+      // Reconexão transitória
     } finally {
       setIsLoadingCatalog(false);
     }
@@ -118,24 +152,39 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
   const fetchQueue = async () => {
     try {
       const res = await fetch('/api/v1/queue');
+      if (!res.ok) return;
       const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         setQueue(data.queue);
       }
-    } catch (err) {
-      console.error('Erro ao buscar fila:', err);
+    } catch {
+      // Reconexão transitória
     }
   };
 
   const fetchPlaylist = async (pId: string) => {
     try {
       const res = await fetch(`/api/v1/playlists/${pId}`);
+      if (!res.ok) return;
       const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         setPlaylist(data.items);
       }
-    } catch (err) {
-      console.error('Erro ao buscar playlist:', err);
+    } catch {
+      // Reconexão transitória
+    }
+  };
+
+  const fetchHistory = async (pId: string) => {
+    try {
+      const res = await fetch(`/api/v1/participants/${pId}/history`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data) {
+        setParticipantHistory(data);
+      }
+    } catch {
+      // Reconexão transitória
     }
   };
 
@@ -169,6 +218,9 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
 
       setParticipant(data.participant);
       fetchPlaylist(data.participant.id);
+      if (data.participant.whatsapp) {
+        fetchHistory(data.participant.id);
+      }
     } catch (err) {
       setRegisterError('Erro de conexão ao registrar.');
     } finally {
@@ -283,8 +335,9 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
     }
   };
 
-  // Live Audience Reaction (PRD Section 48)
+  // Live Audience Reaction (PRD Section 48 & 49)
   const handleSendReaction = async (emoji: string, label: string) => {
+    setSendingReaction(emoji);
     try {
       await fetch('/api/v1/reactions', {
         method: 'POST',
@@ -295,9 +348,11 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
           label
         })
       });
-      showFeedback(`${emoji} Reação enviada para o palco!`, 'success');
+      showFeedback(`${emoji} Reação enviada para o telão!`, 'success');
     } catch (err) {
       // silent
+    } finally {
+      setTimeout(() => setSendingReaction(null), 1000);
     }
   };
 
@@ -469,6 +524,11 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
 
   // Active Participant Dashboard
   const liveSong = queue.find((q) => q.status === 'PLAYING');
+  const myQueuedSong = queue.find((q) => q.participantId === participant.id && q.status === 'QUEUED');
+  const queuedBeforeCount = myQueuedSong
+    ? queue.filter((q) => q.status === 'QUEUED' && q.orderIndex < myQueuedSong.orderIndex).length
+    : 0;
+  const isMyTurnNow = liveSong?.participantId === participant.id;
 
   return (
     <div className="max-w-3xl mx-auto p-3 sm:p-6 pb-28">
@@ -576,6 +636,127 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
                 </p>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRD Seção 43 & 49: Banner Especial - É a sua vez no Palco! */}
+      {isMyTurnNow && liveSong && (
+        <div className="rounded-2xl bg-gradient-to-r from-pink-600/30 via-purple-600/30 to-indigo-600/30 border-2 border-pink-500/60 p-4 mb-5 shadow-2xl relative overflow-hidden backdrop-blur-xl animate-pulse">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-pink-500 to-purple-600 text-white flex items-center justify-center font-black text-xl shadow-lg shadow-pink-500/40">
+                🎤
+              </div>
+              <div>
+                <div className="text-[11px] font-black uppercase tracking-wider text-pink-300">
+                  🎉 É a sua vez no palco! Solte a voz!
+                </div>
+                <div className="text-white font-black text-base sm:text-lg">
+                  {liveSong.musicTitle} <span className="text-slate-300 text-xs font-normal">• {liveSong.musicArtist}</span>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => onOpenTracker ? onOpenTracker(liveSong.id) : setShareModalItem(liveSong)}
+              className="px-3.5 py-2.5 rounded-xl bg-pink-500 hover:bg-pink-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-pink-500/30 transition active:scale-95"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Acompanhar & Compartilhar</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* PRD Seções 48 & 49: Palco Ao Vivo & Reações da Plateia no Telão */}
+      {liveSong && !isMyTurnNow && (
+        <div className="rounded-2xl bg-[#0c1020]/95 border border-pink-500/30 p-4 mb-5 shadow-xl relative overflow-hidden backdrop-blur-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <div className="w-10 h-10 rounded-xl bg-pink-500/20 border border-pink-500/40 text-pink-300 flex items-center justify-center font-bold">
+                  <Radio className="w-5 h-5 text-pink-400 animate-pulse" />
+                </div>
+                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-pink-500"></span>
+                </span>
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                    No Palco Agora
+                  </span>
+                  <span className="text-[11px] text-purple-300 font-semibold truncate">
+                    Cantado por: <strong>{liveSong.participantDisplayName}</strong>
+                  </span>
+                </div>
+                <div className="text-white font-bold text-sm sm:text-base truncate mt-0.5">
+                  {liveSong.musicTitle} <span className="text-slate-400 text-xs font-normal">• {liveSong.musicArtist}</span>
+                </div>
+              </div>
+            </div>
+            <div className="text-left sm:text-right">
+              <span className="text-[10px] text-slate-400 font-medium block">Interaja com a TV</span>
+              <span className="text-xs text-pink-400 font-bold">Envie reações ao vivo</span>
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between gap-1 sm:gap-2">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">
+              Torcida:
+            </span>
+            <div className="flex-1 flex items-center justify-between sm:justify-start gap-1 sm:gap-2">
+              {[
+                { emoji: '👏', label: 'Aplausos' },
+                { emoji: '🔥', label: 'Energia' },
+                { emoji: '❤️', label: 'Amei' },
+                { emoji: '🎤', label: 'Show' },
+                { emoji: '🥳', label: 'Top' },
+                { emoji: '🍻', label: 'Saúde' }
+              ].map((rx) => (
+                <button
+                  key={rx.emoji}
+                  onClick={() => handleSendReaction(rx.emoji, rx.label)}
+                  disabled={Boolean(sendingReaction)}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-xl bg-white/[0.05] hover:bg-pink-500/20 border border-white/10 hover:border-pink-500/40 text-slate-200 transition active:scale-95 text-xs font-semibold disabled:opacity-60"
+                  title={`Enviar ${rx.label} para o Telão`}
+                >
+                  <span className="text-base">{rx.emoji}</span>
+                  <span className="hidden md:inline text-[11px]">{rx.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRD Seção 43: Acompanhamento da Minha Posição na Fila */}
+      {myQueuedSong && (
+        <div className="rounded-2xl bg-gradient-to-r from-purple-950/40 via-[#0e1322] to-indigo-950/40 border border-purple-500/30 p-4 mb-5 shadow-xl flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center justify-center font-black text-sm">
+              #{queuedBeforeCount + 1}
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-purple-300">
+                Sua música na fila: <strong>{myQueuedSong.musicTitle}</strong>
+              </div>
+              <div className="text-xs text-slate-300">
+                {queuedBeforeCount === 0
+                  ? '🔥 Você é o próximo da fila! Prepare o microfone!'
+                  : `Faltam ${queuedBeforeCount} ${queuedBeforeCount === 1 ? 'música' : 'músicas'} antes de você (~${(queuedBeforeCount + 1) * 4} min).`}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onOpenTracker ? onOpenTracker(myQueuedSong.id) : setShareModalItem(myQueuedSong)}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs transition shadow-md shadow-purple-600/20 flex items-center gap-1.5 active:scale-95"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Acompanhar Minha Vez</span>
+            </button>
           </div>
         </div>
       )}
@@ -1003,42 +1184,65 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
         </div>
       )}
 
-      {/* TAB 4: PERSONAL HISTORY */}
+      {/* TAB 4: PERSONAL HISTORY (PRD Seção 41: "Você já cantou esta versão X vezes") */}
       {activeSubTab === 'HISTORY' && (
         <div className="space-y-4">
           <div className="rounded-3xl bg-[#0e1322]/90 border border-white/10 p-6 shadow-2xl">
-            <div className="flex items-center gap-3.5 mb-5">
-              <div className="w-12 h-12 rounded-2xl bg-purple-600/20 text-purple-300 flex items-center justify-center border border-purple-500/30 shadow-md">
-                <Sparkles className="w-6 h-6" />
+            <div className="flex items-center justify-between gap-3 mb-5">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-purple-600/20 text-purple-300 flex items-center justify-center border border-purple-500/30 shadow-md">
+                  <Sparkles className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white">Identidade Persistente</h3>
+                  <p className="text-xs text-slate-400">Vinculada ao WhatsApp <span className="text-purple-300 font-mono font-bold">{participant.whatsapp}</span></p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-base sm:text-lg font-black text-white">Identidade Persistente</h3>
-                <p className="text-xs text-slate-400">Vinculada ao WhatsApp <span className="text-purple-300 font-mono">{participant.whatsapp}</span></p>
-              </div>
+
+              <button
+                onClick={() => fetchHistory(participant.id)}
+                className="p-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 hover:text-white border border-white/10 transition active:scale-95"
+                title="Atualizar Histórico"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-5">
               <div className="p-4 rounded-2xl bg-[#090D18] border border-white/[0.07]">
                 <span className="text-[11px] font-semibold text-slate-400 block uppercase tracking-wider">Músicas Cantadas</span>
-                <span className="text-2xl font-black text-white mt-1 block">4</span>
+                <span className="text-2xl font-black text-white mt-1 block">
+                  {participantHistory?.totalSung ?? 0}
+                </span>
               </div>
               <div className="p-4 rounded-2xl bg-[#090D18] border border-white/[0.07]">
-                <span className="text-[11px] font-semibold text-slate-400 block uppercase tracking-wider">Estilo Favorito</span>
-                <span className="text-2xl font-black text-purple-300 mt-1 block">Karaokê HD</span>
+                <span className="text-[11px] font-semibold text-slate-400 block uppercase tracking-wider">Visitas à Casa</span>
+                <span className="text-2xl font-black text-purple-300 mt-1 block">
+                  {participantHistory?.totalParticipations ?? 1}
+                </span>
               </div>
             </div>
 
-            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Suas Versões Mais Pedidas</h4>
-            <div className="space-y-2.5 text-xs">
-              <div className="p-3 rounded-xl bg-[#090D18] border border-white/[0.06] flex items-center justify-between">
-                <span className="text-slate-200 font-medium">Evidências - Chitãozinho & Xororó (Karaokê)</span>
-                <span className="text-purple-300 font-bold bg-purple-950/80 px-2 py-0.5 rounded-full border border-purple-500/30">Cantada 3x</span>
+            <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Histórico e Versões Cantadas</h4>
+            {(!participantHistory?.historyItems || participantHistory.historyItems.length === 0) ? (
+              <div className="p-8 text-center rounded-2xl bg-[#090D18] border border-white/[0.06] text-slate-400 text-xs">
+                Você ainda não concluiu nenhuma música no palco nesta sessão. Adicione sua música à fila e solte a voz!
               </div>
-              <div className="p-3 rounded-xl bg-[#090D18] border border-white/[0.06] flex items-center justify-between">
-                <span className="text-slate-200 font-medium">Cheia de Manias - Raça Negra (Playback)</span>
-                <span className="text-purple-300 font-bold bg-purple-950/80 px-2 py-0.5 rounded-full border border-purple-500/30">Cantada 1x</span>
+            ) : (
+              <div className="space-y-2.5 text-xs">
+                {participantHistory.historyItems.map((item, idx) => (
+                  <div key={idx} className="p-3.5 rounded-xl bg-[#090D18] border border-white/[0.06] flex items-center justify-between gap-3 hover:border-purple-500/30 transition">
+                    <div className="min-w-0">
+                      <div className="text-slate-100 font-bold truncate">{item.musicTitle}</div>
+                      <div className="text-[11px] text-slate-400 truncate">{item.musicArtist} • Versão {item.versionStyle}</div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/40 whitespace-nowrap shadow-sm">
+                      {item.badgeText}
+                    </span>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}

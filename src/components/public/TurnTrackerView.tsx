@@ -18,7 +18,9 @@ import {
   ArrowRight,
   Flame,
   Radio,
-  ExternalLink
+  ExternalLink,
+  Bell,
+  AlertCircle
 } from 'lucide-react';
 
 interface TurnTrackerProps {
@@ -33,6 +35,7 @@ interface ShareData {
   musicTitle: string;
   musicArtist: string;
   versionStyle: string;
+  toneOffset?: number;
   status: 'QUEUED' | 'PLAYING' | 'COMPLETED' | 'CANCELLED';
   positionInQueue: string | number;
   estimatedWaitMinutes: number;
@@ -131,6 +134,18 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
 
   const isPlaying = data.status === 'PLAYING';
   const isCompleted = data.status === 'COMPLETED';
+  const isNext = !isCompleted && !isPlaying && (data.positionInQueue === 1 || data.positionInQueue === '1º da fila' || data.positionInQueue === 'Próxima na fila');
+
+  // Trigger subtle haptic vibration when participant becomes next (PRD Seção 4.2)
+  useEffect(() => {
+    if (isNext && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate([200, 100, 200]);
+      } catch (e) {
+        // vibration not allowed or unsupported
+      }
+    }
+  }, [isNext]);
 
   return (
     <div className="max-w-md mx-auto p-4 sm:p-6 space-y-6 animate-in fade-in duration-300">
@@ -152,6 +167,19 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
           </button>
         )}
       </div>
+
+      {/* Prepare seu Microfone Alert Banner (PRD Seções 4.2 e 32) */}
+      {isNext && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-purple-500/20 border-2 border-amber-400/60 shadow-xl shadow-amber-500/10 text-center animate-pulse space-y-1">
+          <div className="flex items-center justify-center gap-2 text-amber-300 font-black text-sm uppercase tracking-wider">
+            <Bell className="w-4 h-4 animate-bounce" />
+            <span>Prepare seu Microfone!</span>
+          </div>
+          <p className="text-xs text-white font-medium">
+            Você é o próximo a cantar! Aproxime-se do palco ou da cabine de som.
+          </p>
+        </div>
+      )}
 
       {/* Main Status Hero Card (VIP Concert Pass) */}
       <div
@@ -212,10 +240,19 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
             <span className="truncate">{data.musicTitle}</span>
           </div>
           <p className="text-xs text-slate-300 font-semibold">{data.musicArtist}</p>
-          <div className="pt-1">
+          <div className="pt-1 flex items-center justify-center gap-2 flex-wrap">
             <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/[0.06] text-purple-300 border border-white/10">
               Estilo: {data.versionStyle}
             </span>
+            {data.toneOffset !== undefined && data.toneOffset !== 0 ? (
+              <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                Tom: {data.toneOffset > 0 ? `+${data.toneOffset}` : data.toneOffset} ST
+              </span>
+            ) : (
+              <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/[0.04] text-slate-400 border border-white/5">
+                Tom Original
+              </span>
+            )}
           </div>
         </div>
 

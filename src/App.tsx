@@ -50,13 +50,14 @@ export default function App() {
   const fetchSession = useCallback(async () => {
     try {
       const res = await fetch('/api/v1/session');
+      if (!res.ok) return;
       const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         setSession(data.data);
         setTvConnected(data.data.tvConnected);
       }
-    } catch (err) {
-      console.error('Erro ao buscar dados da sessão:', err);
+    } catch {
+      // Reconexão transitória
     }
   }, []);
 
@@ -132,7 +133,13 @@ export default function App() {
       {/* Primary View Container */}
       <main className="flex-1 relative z-10">
         {activeTab === 'PARTICIPANT' && (
-          <ParticipantView sessionCode={session?.code || 'SLZ-704'} />
+          <ParticipantView
+            sessionCode={session?.code || 'SLZ-704'}
+            onOpenTracker={(id) => {
+              setTrackerItemId(id);
+              setActiveTab('TRACKER');
+            }}
+          />
         )}
 
         {activeTab === 'CONTROLLER' && (

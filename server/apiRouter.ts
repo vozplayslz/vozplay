@@ -232,20 +232,36 @@ apiRouter.get('/participants/:id/history', (req, res) => {
     });
   }
 
-  // Calculate history based on normalized whatsapp
+  // Calculate history based on normalized whatsapp (PRD Seção 41)
   const sungSongs = db.queue.filter(
     q => q.participantId === participant.id && q.status === 'COMPLETED'
   );
 
+  const versionFrequency: Record<string, number> = {};
+  for (const s of sungSongs) {
+    const key = `${s.musicTitle}::${s.versionStyle}`;
+    versionFrequency[key] = (versionFrequency[key] || 0) + 1;
+  }
+
+  const identity = db.identities.get(participant.whatsapp);
+
   res.json({
     hasPersistentIdentity: true,
     totalSung: sungSongs.length,
-    historyItems: sungSongs.map(s => ({
-      musicTitle: s.musicTitle,
-      musicArtist: s.musicArtist,
-      versionStyle: s.versionStyle,
-      completedAt: s.completedAt
-    }))
+    totalParticipations: identity?.totalParticipations || 1,
+    firstSeen: identity?.firstSeen,
+    historyItems: sungSongs.map(s => {
+      const key = `${s.musicTitle}::${s.versionStyle}`;
+      const count = versionFrequency[key] || 1;
+      return {
+        musicTitle: s.musicTitle,
+        musicArtist: s.musicArtist,
+        versionStyle: s.versionStyle,
+        completedAt: s.completedAt,
+        sungCount: count,
+        badgeText: count > 1 ? `Você já cantou esta versão ${count} vezes` : 'Primeira vez cantada'
+      };
+    })
   });
 });
 
@@ -405,6 +421,16 @@ apiRouter.post('/queue/add', (req, res) => {
     return res.status(400).json({ error: 'A sessão não está ativa para novas músicas no momento.' });
   }
 
+  // PRD Seção 29: Encerramento Programado - bloquear novas músicas quando atingir o horário
+  if (db.session.scheduledEndTime) {
+    const isPastScheduledEnd = Date.now() >= new Date(db.session.scheduledEndTime).getTime();
+    if (isPastScheduledEnd) {
+      return res.status(403).json({
+        error: 'O horário limite da sessão foi atingido. Novas músicas estão bloqueadas aguardando prorrogação pelo Supervisor.'
+      });
+    }
+  }
+
   const participant = db.participants.get(participantId);
   if (!participant) {
     return res.status(404).json({ error: 'Participante não cadastrado na sessão.' });
@@ -519,6 +545,7 @@ apiRouter.get('/queue/share/:queueItemId', (req, res) => {
       musicTitle: item.musicTitle,
       musicArtist: item.musicArtist,
       versionStyle: item.versionStyle,
+      toneOffset: item.toneOffset || 0,
       status: item.status,
       positionInQueue: item.status === 'PLAYING' ? 'Cantando Agora!' : queuedBefore + 1,
       estimatedWaitMinutes: item.status === 'PLAYING' ? 0 : (queuedBefore + 1) * 4,
@@ -647,6 +674,112 @@ apiRouter.post('/controller/report-error', (req, res) => {
   wsServer.broadcast('player.error', { error: errorReason, item: currentItem });
   wsServer.broadcastAuthoritativeState();
   res.json({ success: true, currentItem });
+});
+
+// PRD Seção 25: Erro de Reprodução - Reenfileirar com prioridade sem punir o participante
+apiRouter.post('/controller/requeue-error', (req, res) => {
+  const currentItem = db.queue.find(q => q.status === 'ERROR' || q.status === 'PLAYING');
+  if (!currentItem) {
+    return res.status(404).json({ error: 'Nenhuma música com erro ou em reprodução para reenfileirar.' });
+  }
+
+  currentItem.status = 'QUEUED';
+  currentItem.errorMessage = undefined;
+
+  // Move to the front of queued items
+  const activeQueued = db.queue.filter(q => q.id !== currentItem.id && q.status === 'QUEUED');
+  const otherItems = db.queue.filter(q => q.id !== currentItem.id && q.status !== 'QUEUED');
+  db.queue = [...otherItems, currentItem, ...activeQueued];
+  db.reindexQueue();
+
+  db.playbackState.status = 'IDLE';
+  db.playbackState.currentQueueItemId = null;
+
+  db.logAudit(
+    'CONTROLLER',
+    db.session.activeControllerName || 'Controlador',
+    'REQUEUE_ERROR',
+    `Música reenfileirada no topo da fila após falha técnica: ${currentItem.musicTitle} (${currentItem.participantDisplayName})`
+  );
+
+  wsServer.broadcast('queue.updated', { item: currentItem });
+  wsServer.broadcastAuthoritativeState();
+  res.json({ success: true, message: 'Música reenfileirada com prioridade!', item: currentItem });
+});
+
+// PRD Seção 20 & 24: Operador - Promover música para o topo da fila (Próxima a Tocar)
+apiRouter.post('/controller/queue/promote', (req, res) => {
+  const { queueItemId } = req.body;
+  const itemIndex = db.queue.findIndex(q => q.id === queueItemId);
+  if (itemIndex === -1) {
+    return res.status(404).json({ error: 'Item não encontrado na fila.' });
+  }
+
+  const item = db.queue[itemIndex];
+  if (item.status !== 'QUEUED') {
+    return res.status(400).json({ error: 'Apenas músicas na fila podem ser promovidas.' });
+  }
+
+  // Remove from current position
+  db.queue.splice(itemIndex, 1);
+
+  // Insert right at the first position among queued items
+  const firstQueuedIndex = db.queue.findIndex(q => q.status === 'QUEUED');
+  if (firstQueuedIndex === -1) {
+    db.queue.push(item);
+  } else {
+    db.queue.splice(firstQueuedIndex, 0, item);
+  }
+
+  db.reindexQueue();
+
+  db.logAudit(
+    'CONTROLLER',
+    db.session.activeControllerName || 'Controlador',
+    'QUEUE_PROMOTE',
+    `Música promovida para o topo da fila: ${item.musicTitle} (${item.participantDisplayName})`
+  );
+
+  wsServer.broadcast('queue.updated', { item });
+  wsServer.broadcastAuthoritativeState();
+
+  res.json({
+    success: true,
+    message: `"${item.musicTitle}" movida para o topo da fila!`,
+    queue: db.queue
+  });
+});
+
+// PRD Seção 20 & 24: Operador - Remover música da fila (desistência ou ausência de participante)
+apiRouter.post('/controller/queue/remove', (req, res) => {
+  const { queueItemId, reason } = req.body;
+  const item = db.queue.find(q => q.id === queueItemId);
+  if (!item) {
+    return res.status(404).json({ error: 'Item não encontrado na fila.' });
+  }
+
+  if (item.status === 'PLAYING') {
+    return res.status(400).json({ error: 'A música está tocando agora. Use a opção de Pular no player.' });
+  }
+
+  item.status = 'CANCELLED';
+  db.reindexQueue();
+
+  db.logAudit(
+    'CONTROLLER',
+    db.session.activeControllerName || 'Controlador',
+    'QUEUE_REMOVE',
+    `Música removida pelo operador (${reason || 'Participante ausente'}): ${item.musicTitle} (${item.participantDisplayName})`
+  );
+
+  wsServer.broadcast('queue.cancelled', { queueItemId });
+  wsServer.broadcastAuthoritativeState();
+
+  res.json({
+    success: true,
+    message: `Música removida da fila.`,
+    queue: db.queue
+  });
 });
 
 apiRouter.post('/controller/volume', (req, res) => {
@@ -904,5 +1037,48 @@ apiRouter.get('/metrics', (req, res) => {
       activeParticipants: db.participants.size,
       queueLength: db.queue.filter(q => q.status === 'QUEUED').length
     }
+  });
+});
+
+// ==========================================
+// 11. DISPOSITIVOS & HANDSHAKE MULTI-CLIENT (/api/v1/devices)
+// PRD Seções 33, 36, 37, 56 e 61: Registro de clientes desacoplados
+// ==========================================
+apiRouter.post('/devices/handshake', (req, res) => {
+  const { deviceId, clientType, role, platform, clientVersion } = req.body;
+  const cleanId = (deviceId || 'dev-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6)).trim();
+
+  const info = {
+    deviceId: cleanId,
+    clientType: clientType || 'PWA',
+    role: role || 'PARTICIPANT',
+    platform: platform || 'Web/Browser',
+    clientVersion: clientVersion || '1.0.0-beta',
+    lastSeenAt: new Date().toISOString()
+  };
+
+  db.devices.set(cleanId, info);
+
+  db.logAudit(
+    'SYSTEM',
+    'DeviceHandshake',
+    'DEVICE_CONNECT',
+    `Cliente conectado: ${cleanId} [${info.clientType} / ${info.role} / ${info.platform}]`
+  );
+
+  res.json({
+    success: true,
+    device: info,
+    serverTime: new Date().toISOString(),
+    sessionStatus: db.session.status,
+    scheduledEndTime: db.session.scheduledEndTime
+  });
+});
+
+apiRouter.get('/devices', (req, res) => {
+  res.json({
+    success: true,
+    total: db.devices.size,
+    devices: Array.from(db.devices.values())
   });
 });

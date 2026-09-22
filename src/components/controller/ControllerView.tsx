@@ -23,7 +23,10 @@ import {
   Copy,
   Sliders,
   Volume2,
-  VolumeX
+  VolumeX,
+  ChevronsUp,
+  Trash2,
+  ArrowUp
 } from 'lucide-react';
 import { QueueItem, PresenceCode, Session, PlaybackStatus } from '../../types.js';
 
@@ -55,6 +58,19 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
     fetchPresenceCode();
     fetchQueueAndPlayback();
 
+    // Register Controller Device Handshake (PRD Seções 36 & 37)
+    fetch('/api/v1/devices/handshake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deviceId: 'ctrl-' + (typeof window !== 'undefined' ? window.location.hostname : 'console'),
+        clientType: 'PWA',
+        role: 'CONTROLLER',
+        platform: typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac') ? 'macOS Safari (Cabine de Som)' : 'Web Controller Console',
+        clientVersion: '1.2.0-ctrl'
+      })
+    }).catch(() => {});
+
     // High frequency interval for countdown and presence refresh
     const interval = setInterval(() => {
       fetchPresenceCode();
@@ -67,20 +83,22 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
   const fetchPresenceCode = async () => {
     try {
       const res = await fetch('/api/v1/controller/presence-code');
+      if (!res.ok) return;
       const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         setPresenceCode(data.presenceCode);
       }
-    } catch (err) {
-      console.error('Erro ao obter código de presença:', err);
+    } catch {
+      // Reconexão transitória
     }
   };
 
   const fetchQueueAndPlayback = async () => {
     try {
       const res = await fetch('/api/v1/queue');
+      if (!res.ok) return;
       const data = await res.json();
-      if (data.success) {
+      if (data && data.success) {
         setQueue(data.queue);
         setPlayingItem(data.playingItem);
         if (data.playingItem) {
@@ -89,8 +107,8 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
           setPlaybackStatus('IDLE');
         }
       }
-    } catch (err) {
-      console.error('Erro ao obter fila da sessão:', err);
+    } catch {
+      // Reconexão transitória
     }
   };
 
@@ -167,6 +185,24 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
     }
   };
 
+  // PRD Seção 25: Reenfileirar com prioridade sem punir o participante
+  const handleRequeueError = async () => {
+    try {
+      const res = await fetch('/api/v1/controller/requeue-error', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setShowErrorModal(false);
+        fetchQueueAndPlayback();
+        showFeedback('Música reenfileirada no topo da fila com prioridade!', 'success');
+        if (onStateRefresh) onStateRefresh();
+      } else {
+        showFeedback(data.error || 'Falha ao reenfileirar.', 'error');
+      }
+    } catch (err) {
+      showFeedback('Erro ao reenfileirar.', 'error');
+    }
+  };
+
   const handleVolumeChange = async (newVol: number) => {
     setVolume(newVol);
     try {
@@ -232,6 +268,45 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
       }
     } catch (err) {
       showFeedback('Falha ao transpor tom.', 'error');
+    }
+  };
+
+  const handlePromoteItem = async (queueItemId: string) => {
+    try {
+      const res = await fetch('/api/v1/controller/queue/promote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queueItemId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showFeedback(data.message, 'success');
+        fetchQueueAndPlayback();
+      } else {
+        showFeedback(data.error || 'Erro ao promover música', 'error');
+      }
+    } catch (e) {
+      showFeedback('Falha de conexão com o servidor', 'error');
+    }
+  };
+
+  const handleRemoveQueueItem = async (queueItemId: string, songTitle: string) => {
+    if (!confirm(`Remover "${songTitle}" da fila de espera?`)) return;
+    try {
+      const res = await fetch('/api/v1/controller/queue/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queueItemId, reason: 'Removido pelo operador na mesa de som' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showFeedback(`"${songTitle}" removida da fila.`, 'success');
+        fetchQueueAndPlayback();
+      } else {
+        showFeedback(data.error || 'Erro ao remover música', 'error');
+      }
+    } catch (e) {
+      showFeedback('Falha de conexão com o servidor', 'error');
     }
   };
 
@@ -620,6 +695,48 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
                   >
                     {item.status === 'PLAYING' ? 'NO PALCO' : item.status === 'QUEUED' ? 'NA FILA' : item.status === 'COMPLETED' ? 'CONCLUÍDO' : 'ERRO'}
                   </span>
+
+                  {/* Operações da Mesa de Som para Músicas na Fila (PRD Seção 20 e 24) */}
+                  {item.status === 'QUEUED' && (
+                    <div className="flex items-center gap-1.5 pl-1 border-l border-white/10">
+                      <button
+                        onClick={() => handlePromoteItem(item.id)}
+                        className="p-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/30 border border-indigo-500/30 text-indigo-300 transition active:scale-95 flex items-center gap-1 text-[11px] font-bold"
+                        title="Promover para Próxima a Tocar (Topo da Fila)"
+                      >
+                        <ChevronsUp className="w-3.5 h-3.5" />
+                        <span className="hidden md:inline">Top 1</span>
+                      </button>
+
+                      <div className="flex items-center bg-white/[0.04] rounded-lg border border-white/10 p-0.5">
+                        <button
+                          onClick={() => handleTuneTone(item.id, Math.max(-3, (item.toneOffset || 0) - 1))}
+                          className="px-1.5 py-0.5 text-[10px] text-slate-300 hover:text-white font-mono hover:bg-white/10 rounded"
+                          title="Diminuir 1 semitom"
+                        >
+                          -b
+                        </button>
+                        <span className="text-[10px] font-mono font-bold text-amber-300 px-1">
+                          {item.toneOffset ? (item.toneOffset > 0 ? `+${item.toneOffset}` : item.toneOffset) : '0'}
+                        </span>
+                        <button
+                          onClick={() => handleTuneTone(item.id, Math.min(3, (item.toneOffset || 0) + 1))}
+                          className="px-1.5 py-0.5 text-[10px] text-slate-300 hover:text-white font-mono hover:bg-white/10 rounded"
+                          title="Aumentar 1 semitom"
+                        >
+                          +#
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => handleRemoveQueueItem(item.id, item.musicTitle)}
+                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 transition active:scale-95"
+                        title="Remover música da fila"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -661,10 +778,18 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
               ))}
             </div>
 
-            <div className="flex gap-2.5">
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <button
+                onClick={handleRequeueError}
+                className="flex-1 py-3 px-3 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-600/20 transition active:scale-95 flex items-center justify-center gap-1.5"
+                title="Tentar novamente na TV preservando a vez do participante"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Reenfileirar no Topo</span>
+              </button>
               <button
                 onClick={handleReportError}
-                className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white font-bold text-xs shadow-lg shadow-rose-600/20 transition active:scale-95"
+                className="flex-1 py-3 px-3 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white font-bold text-xs shadow-lg shadow-rose-600/20 transition active:scale-95"
               >
                 Confirmar Erro e Pular
               </button>
@@ -672,7 +797,7 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
                 onClick={() => setShowErrorModal(false)}
                 className="py-3 px-4 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 font-bold text-xs border border-white/10 transition active:scale-95"
               >
-                Cancelar
+                Voltar
               </button>
             </div>
           </div>
