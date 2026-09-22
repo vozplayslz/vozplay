@@ -30,6 +30,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Participant, Music, QueueItem, PlaylistItem, MusicVersion } from '../../types.js';
+import { ParticipantSidebar, ParticipantSubTab } from './ParticipantSidebar.js';
 
 interface ParticipantViewProps {
   sessionCode?: string;
@@ -531,56 +532,11 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
   const isMyTurnNow = liveSong?.participantId === participant.id;
 
   return (
-    <div className="max-w-3xl mx-auto p-3 sm:p-6 pb-28">
-      {/* Top Participant Status Card (VIP Pass Style) */}
-      <div className="relative rounded-2xl bg-gradient-to-r from-[#101526]/95 via-[#0e1220]/95 to-[#161028]/95 border border-white/10 p-4 mb-5 flex flex-wrap items-center justify-between gap-3 shadow-xl backdrop-blur-xl">
-        <div className="flex items-center gap-3.5">
-          <div className="relative">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-pink-500 p-0.5 shadow-md shadow-purple-600/20">
-              <div className="w-full h-full bg-[#0a0e1a] rounded-[14px] flex items-center justify-center font-black text-purple-300 text-base">
-                {participant.displayName.charAt(0).toUpperCase()}
-              </div>
-            </div>
-            {participant.isVerified && (
-              <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-[#0a0e1a] flex items-center justify-center">
-                <CheckCircle2 className="w-2.5 h-2.5 text-white" />
-              </span>
-            )}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-white font-black text-base sm:text-lg tracking-tight">{participant.displayName}</h3>
-              {participant.isVerified ? (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                  <UserCheck className="w-3 h-3" /> Presença Validada
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                  <KeyRound className="w-3 h-3" /> Código Pendente
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {participant.whatsapp ? `VIP Identificado (${participant.whatsapp})` : 'Convidado da Mesa'}
-            </p>
-          </div>
-        </div>
-
-        {/* Presence Code Verification Trigger if not verified */}
-        {!participant.isVerified && (
-          <button
-            onClick={() => setActiveSubTab('SEARCH')}
-            className="text-xs font-bold px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition shadow-sm"
-          >
-            Inserir 4 Dígitos do Som
-          </button>
-        )}
-      </div>
-
+    <div className="max-w-7xl mx-auto p-3 sm:p-6 pb-28">
       {/* Global Feedback Message */}
       {actionFeedback && (
         <div
-          className={`mb-4 p-4 rounded-2xl border text-xs font-semibold flex items-center gap-2.5 shadow-xl animate-in fade-in slide-in-from-top-2 backdrop-blur-md ${
+          className={`mb-5 p-4 rounded-2xl border text-xs font-semibold flex items-center gap-2.5 shadow-xl animate-in fade-in slide-in-from-top-2 backdrop-blur-md ${
             actionFeedback.type === 'success'
               ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-200'
               : 'bg-rose-950/80 border-rose-500/40 text-rose-200'
@@ -591,58 +547,9 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
         </div>
       )}
 
-      {/* Section 13 Presence Code Banner if NOT verified */}
-      {!participant.isVerified && (
-        <div className="rounded-2xl bg-gradient-to-br from-amber-950/40 via-[#151222] to-[#0f1424] border border-amber-500/30 p-5 mb-5 shadow-2xl relative overflow-hidden">
-          <div className="flex items-start gap-4 relative z-10">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center flex-shrink-0 mt-0.5 border border-amber-500/30 shadow-md">
-              <KeyRound className="w-5 h-5" />
-            </div>
-            <div className="flex-1">
-              <h4 className="text-sm font-bold text-white tracking-tight">Validação Obrigatória de Presença Física</h4>
-              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                Para cantar no palco, solicite o <strong>Código de 4 Dígitos</strong> visível na mesa do operador ou na TV. Ele garante uma fila justa para quem está presente!
-              </p>
-
-              <form onSubmit={handleVerifyPresence} className="mt-4 flex flex-wrap items-center gap-2.5">
-                <input
-                  id="input-presence-code"
-                  type="text"
-                  maxLength={4}
-                  value={presenceCodeInput}
-                  onChange={(e) => setPresenceCodeInput(e.target.value.replace(/\D/g, ''))}
-                  placeholder="0000"
-                  className="w-32 text-center text-xl tracking-[0.3em] font-mono font-black px-3 py-2.5 rounded-xl bg-[#080B14] border border-amber-500/50 text-amber-300 placeholder-slate-700 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/30 shadow-inner"
-                />
-                <button
-                  id="btn-verify-presence"
-                  type="submit"
-                  disabled={isVerifyingPresence || presenceCodeInput.length !== 4}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs transition-all shadow-md shadow-amber-500/20 disabled:opacity-40"
-                >
-                  {isVerifyingPresence ? 'Validando...' : 'Liberar Microfone'}
-                </button>
-              </form>
-
-              {presenceError && (
-                <p className="text-xs text-rose-400 mt-2 font-medium flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5" /> {presenceError}
-                </p>
-              )}
-
-              {presenceSuccess && (
-                <p className="text-xs text-emerald-400 mt-2 font-medium flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> {presenceSuccess}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* PRD Seção 43 & 49: Banner Especial - É a sua vez no Palco! */}
       {isMyTurnNow && liveSong && (
-        <div className="rounded-2xl bg-gradient-to-r from-pink-600/30 via-purple-600/30 to-indigo-600/30 border-2 border-pink-500/60 p-4 mb-5 shadow-2xl relative overflow-hidden backdrop-blur-xl animate-pulse">
+        <div className="rounded-2xl bg-gradient-to-r from-pink-600/30 via-purple-600/30 to-indigo-600/30 border-2 border-pink-500/60 p-4 mb-6 shadow-2xl relative overflow-hidden backdrop-blur-xl animate-pulse">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-pink-500 to-purple-600 text-white flex items-center justify-center font-black text-xl shadow-lg shadow-pink-500/40">
@@ -659,7 +566,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
             </div>
             <button
               onClick={() => onOpenTracker ? onOpenTracker(liveSong.id) : setShareModalItem(liveSong)}
-              className="px-3.5 py-2.5 rounded-xl bg-pink-500 hover:bg-pink-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-pink-500/30 transition active:scale-95"
+              className="px-4 py-2.5 rounded-xl bg-pink-500 hover:bg-pink-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-pink-500/30 transition active:scale-95"
             >
               <Share2 className="w-3.5 h-3.5" />
               <span>Acompanhar & Compartilhar</span>
@@ -668,161 +575,92 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
         </div>
       )}
 
-      {/* PRD Seções 48 & 49: Palco Ao Vivo & Reações da Plateia no Telão */}
-      {liveSong && !isMyTurnNow && (
-        <div className="rounded-2xl bg-[#0c1020]/95 border border-pink-500/30 p-4 mb-5 shadow-xl relative overflow-hidden backdrop-blur-xl">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="w-10 h-10 rounded-xl bg-pink-500/20 border border-pink-500/40 text-pink-300 flex items-center justify-center font-bold">
-                  <Radio className="w-5 h-5 text-pink-400 animate-pulse" />
-                </div>
-                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-pink-500"></span>
-                </span>
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-pink-500/20 text-pink-300 border border-pink-500/30">
-                    No Palco Agora
-                  </span>
-                  <span className="text-[11px] text-purple-300 font-semibold truncate">
-                    Cantado por: <strong>{liveSong.participantDisplayName}</strong>
-                  </span>
-                </div>
-                <div className="text-white font-bold text-sm sm:text-base truncate mt-0.5">
-                  {liveSong.musicTitle} <span className="text-slate-400 text-xs font-normal">• {liveSong.musicArtist}</span>
-                </div>
-              </div>
-            </div>
-            <div className="text-left sm:text-right">
-              <span className="text-[10px] text-slate-400 font-medium block">Interaja com a TV</span>
-              <span className="text-xs text-pink-400 font-bold">Envie reações ao vivo</span>
-            </div>
-          </div>
+      {/* Main Two-Column Layout (Modular Sidebar + Dynamic Subtab Workspace) */}
+      <div className="flex flex-col lg:flex-row items-start gap-6">
+        <ParticipantSidebar
+          activeSubTab={activeSubTab}
+          setActiveSubTab={setActiveSubTab}
+          participant={participant}
+          playlistCount={playlist.length}
+          queuedCount={queue.filter((q) => q.status === 'QUEUED').length}
+          liveSong={liveSong}
+          myQueuedSong={myQueuedSong}
+          queuedBeforeCount={queuedBeforeCount}
+          isMyTurnNow={isMyTurnNow}
+          sendingReaction={sendingReaction}
+          onSendReaction={handleSendReaction}
+          presenceCodeInput={presenceCodeInput}
+          setPresenceCodeInput={setPresenceCodeInput}
+          onVerifyPresence={handleVerifyPresence}
+          isVerifyingPresence={isVerifyingPresence}
+          presenceError={presenceError}
+          presenceSuccess={presenceSuccess}
+          onOpenTracker={onOpenTracker}
+          onRequestCustomSong={() => setShowCustomModal(true)}
+        />
 
-          <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between gap-1 sm:gap-2">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">
-              Torcida:
-            </span>
-            <div className="flex-1 flex items-center justify-between sm:justify-start gap-1 sm:gap-2">
-              {[
-                { emoji: '👏', label: 'Aplausos' },
-                { emoji: '🔥', label: 'Energia' },
-                { emoji: '❤️', label: 'Amei' },
-                { emoji: '🎤', label: 'Show' },
-                { emoji: '🥳', label: 'Top' },
-                { emoji: '🍻', label: 'Saúde' }
-              ].map((rx) => (
-                <button
-                  key={rx.emoji}
-                  onClick={() => handleSendReaction(rx.emoji, rx.label)}
-                  disabled={Boolean(sendingReaction)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-xl bg-white/[0.05] hover:bg-pink-500/20 border border-white/10 hover:border-pink-500/40 text-slate-200 transition active:scale-95 text-xs font-semibold disabled:opacity-60"
-                  title={`Enviar ${rx.label} para o Telão`}
-                >
-                  <span className="text-base">{rx.emoji}</span>
-                  <span className="hidden md:inline text-[11px]">{rx.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* PRD Seção 43: Acompanhamento da Minha Posição na Fila */}
-      {myQueuedSong && (
-        <div className="rounded-2xl bg-gradient-to-r from-purple-950/40 via-[#0e1322] to-indigo-950/40 border border-purple-500/30 p-4 mb-5 shadow-xl flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center justify-center font-black text-sm">
-              #{queuedBeforeCount + 1}
-            </div>
-            <div>
-              <div className="text-[11px] font-semibold text-purple-300">
-                Sua música na fila: <strong>{myQueuedSong.musicTitle}</strong>
-              </div>
-              <div className="text-xs text-slate-300">
-                {queuedBeforeCount === 0
-                  ? '🔥 Você é o próximo da fila! Prepare o microfone!'
-                  : `Faltam ${queuedBeforeCount} ${queuedBeforeCount === 1 ? 'música' : 'músicas'} antes de você (~${(queuedBeforeCount + 1) * 4} min).`}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+        {/* Dynamic Workspace Container */}
+        <div className="flex-1 w-full min-w-0">
+          {/* Mobile Horizontal Sub-Tab Navigation Bar (visible on screens < lg) */}
+          <div className="flex lg:hidden items-center gap-1.5 p-1.5 rounded-2xl bg-[#0c111e]/90 border border-white/[0.07] mb-5 overflow-x-auto shadow-inner no-scrollbar">
             <button
-              onClick={() => onOpenTracker ? onOpenTracker(myQueuedSong.id) : setShareModalItem(myQueuedSong)}
-              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs transition shadow-md shadow-purple-600/20 flex items-center gap-1.5 active:scale-95"
+              onClick={() => setActiveSubTab('SEARCH')}
+              className={`flex-1 min-w-[95px] py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                activeSubTab === 'SEARCH'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>Explorar</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSubTab('PLAYLIST')}
+              className={`flex-1 min-w-[95px] py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                activeSubTab === 'PLAYLIST'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <ListMusic className="w-3.5 h-3.5" />
+              <span>Playlist</span>
+              {playlist.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-pink-500 text-white text-[9px] font-black">
+                  {playlist.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveSubTab('QUEUE')}
+              className={`flex-1 min-w-[95px] py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                activeSubTab === 'QUEUE'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
             >
               <Clock className="w-3.5 h-3.5" />
-              <span>Acompanhar Minha Vez</span>
+              <span>Fila</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300 text-[9px] font-bold">
+                {queue.filter((q) => q.status === 'QUEUED').length}
+              </span>
             </button>
+
+            {participant.whatsapp && (
+              <button
+                onClick={() => setActiveSubTab('HISTORY')}
+                className={`flex-1 min-w-[95px] py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                  activeSubTab === 'HISTORY'
+                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>Histórico</span>
+              </button>
+            )}
           </div>
-        </div>
-      )}
-
-      {/* Navigation Sub-Tabs (Segmented Pill Control) */}
-      <div className="flex items-center gap-1.5 p-1.5 rounded-2xl bg-[#0c111e]/90 border border-white/[0.07] mb-6 overflow-x-auto shadow-inner">
-        <button
-          onClick={() => setActiveSubTab('SEARCH')}
-          className={`flex-1 min-w-[110px] py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all duration-200 ${
-            activeSubTab === 'SEARCH'
-              ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/25'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
-          }`}
-        >
-          <Search className="w-4 h-4" />
-          <span>Explorar</span>
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('PLAYLIST')}
-          className={`flex-1 min-w-[110px] py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all duration-200 ${
-            activeSubTab === 'PLAYLIST'
-              ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/25'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
-          }`}
-        >
-          <ListMusic className="w-4 h-4" />
-          <span>Playlist</span>
-          {playlist.length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full bg-pink-500 text-white text-[10px] font-black">
-              {playlist.length}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('QUEUE')}
-          className={`flex-1 min-w-[110px] py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all duration-200 ${
-            activeSubTab === 'QUEUE'
-              ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/25'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
-          }`}
-        >
-          <Clock className="w-4 h-4" />
-          <span>Fila da TV</span>
-          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-            activeSubTab === 'QUEUE' ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-300'
-          }`}>
-            {queue.filter((q) => q.status === 'QUEUED').length}
-          </span>
-        </button>
-
-        {participant.whatsapp && (
-          <button
-            onClick={() => setActiveSubTab('HISTORY')}
-            className={`flex-1 min-w-[110px] py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all duration-200 ${
-              activeSubTab === 'HISTORY'
-                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/25'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span>Histórico</span>
-          </button>
-        )}
-      </div>
 
       {/* TAB 1: MUSIC SEARCH & CATALOG */}
       {activeSubTab === 'SEARCH' && (
@@ -1246,6 +1084,8 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
           </div>
         </div>
       )}
+        </div>
+      </div>
 
       {/* CONFIRM VERSION & VOCAL TUNER MODAL (Section 21, 22, 23) */}
       {selectedMusic && (
@@ -1591,9 +1431,9 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
         </div>
       )}
 
-      {/* Floating Live Stage Bar & Instant Reaction Pod (Section 48) */}
+      {/* Floating Live Stage Bar & Instant Reaction Pod (Section 48) - Mobile only */}
       {liveSong && (
-        <div className="fixed bottom-4 left-3 right-3 sm:left-auto sm:right-6 sm:max-w-md z-40">
+        <div className="fixed bottom-4 left-3 right-3 sm:left-auto sm:right-6 sm:max-w-md z-40 lg:hidden">
           <div className="rounded-2xl bg-[#0c1020]/95 border border-pink-500/40 p-3 sm:p-3.5 shadow-2xl shadow-pink-950/50 backdrop-blur-xl ring-1 ring-pink-500/30">
             <div className="flex items-center justify-between gap-3 mb-2">
               <div className="flex items-center gap-2.5 min-w-0">
