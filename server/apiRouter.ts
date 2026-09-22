@@ -10,6 +10,8 @@ import { Router } from 'express';
 import { db } from './db.js';
 import { wsServer } from './wsServer.js';
 import QRCode from 'qrcode';
+import { WishlistItem } from '../src/types.js';
+import { generateRecommendedPlaylist } from './geminiService.js';
 
 export const apiRouter = Router();
 
@@ -349,6 +351,38 @@ apiRouter.post('/music/custom-request', (req, res) => {
   });
 });
 
+// ==========================================
+// 3.1 RECOMENDAÇÕES COM GEMINI AI (/api/v1/recommendations)
+// ==========================================
+apiRouter.post('/recommendations/genre', async (req, res) => {
+  try {
+    const { genre, mood, participantName } = req.body;
+    if (!genre || typeof genre !== 'string') {
+      return res.status(400).json({ error: 'Gênero musical é obrigatório.' });
+    }
+
+    const recommendation = await generateRecommendedPlaylist(genre, mood, participantName);
+
+    db.logAudit(
+      'PARTICIPANT',
+      participantName || 'Participante',
+      'AI_RECOMMENDATION',
+      `Playlist recomendada gerada via Gemini para o gênero: ${genre}`
+    );
+
+    res.json({
+      success: true,
+      data: recommendation
+    });
+  } catch (err: any) {
+    console.error('[API] Erro ao gerar recomendação:', err);
+    res.status(500).json({
+      success: false,
+      error: 'Falha ao gerar recomendações de playlist. Tente novamente em instantes.'
+    });
+  }
+});
+
 
 // ==========================================
 // 4. PLAYLIST PESSOAL (/api/v1/playlists)
@@ -400,6 +434,120 @@ apiRouter.delete('/playlists/:participantId/:itemId', (req, res) => {
   const filtered = userList.filter(i => i.id !== itemId);
   db.playlists.set(participantId, filtered);
   res.json({ success: true, items: filtered });
+});
+
+// ==========================================
+// 4.1 LISTA DE DESEJOS (/api/v1/wishlists)
+// ==========================================
+apiRouter.get('/wishlists/:participantId', (req, res) => {
+  const { participantId } = req.params;
+  const items = db.wishlists.get(participantId) || [];
+  res.json({ success: true, items });
+});
+
+apiRouter.post('/wishlists/:participantId', (req, res) => {
+  const { participantId } = req.params;
+  const { musicId, preferredVersionId, preferredToneOffset, notes } = req.body;
+
+  if (!musicId) {
+    return res.status(400).json({ error: 'Identificador da música (musicId) é obrigatório.' });
+  }
+
+  const music = db.catalog.find(m => m.id === musicId);
+  if (!music) {
+    return res.status(404).json({ error: 'Música não encontrada no catálogo.' });
+  }
+
+  const userWishlist = db.wishlists.get(participantId) || [];
+  const existingIndex = userWishlist.findIndex(w => w.musicId === musicId);
+
+  const version = preferredVersionId
+    ? music.versions.find(v => v.id === preferredVersionId) || music.versions[0]
+    : music.versions[0];
+
+  const tone = preferredToneOffset !== undefined
+    ? Math.max(-3, Math.min(3, Number(preferredToneOffset) || 0))
+    : 0;
+
+  if (existingIndex >= 0) {
+    // Atualiza preferências se já existir
+    userWishlist[existingIndex] = {
+      ...userWishlist[existingIndex],
+      preferredVersionId: version.id,
+      preferredVersionStyle: version.style,
+      preferredToneOffset: tone,
+      notes: notes !== undefined ? notes : userWishlist[existingIndex].notes
+    };
+    db.wishlists.set(participantId, userWishlist);
+    return res.json({ success: true, item: userWishlist[existingIndex], updated: true });
+  }
+
+  const newItem: WishlistItem = {
+    id: 'wish-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+    participantId,
+    musicId: music.id,
+    musicTitle: music.title,
+    musicArtist: music.artist,
+    genre: music.genre,
+    coverUrl: music.coverUrl,
+    preferredVersionId: version.id,
+    preferredVersionStyle: version.style,
+    preferredToneOffset: tone,
+    notes: notes || undefined,
+    addedAt: new Date().toISOString()
+  };
+
+  userWishlist.unshift(newItem);
+  db.wishlists.set(participantId, userWishlist);
+
+  res.json({ success: true, item: newItem });
+});
+
+apiRouter.put('/wishlists/:participantId/:itemId', (req, res) => {
+  const { participantId, itemId } = req.params;
+  const { preferredToneOffset, preferredVersionId, notes } = req.body;
+  const userWishlist = db.wishlists.get(participantId) || [];
+  const itemIndex = userWishlist.findIndex(i => i.id === itemId);
+
+  if (itemIndex < 0) {
+    return res.status(404).json({ error: 'Item não encontrado na lista de desejos.' });
+  }
+
+  const current = userWishlist[itemIndex];
+  if (preferredToneOffset !== undefined) {
+    current.preferredToneOffset = Math.max(-3, Math.min(3, Number(preferredToneOffset) || 0));
+  }
+  if (preferredVersionId) {
+    const music = db.catalog.find(m => m.id === current.musicId);
+    if (music) {
+      const v = music.versions.find(ver => ver.id === preferredVersionId);
+      if (v) {
+        current.preferredVersionId = v.id;
+        current.preferredVersionStyle = v.style;
+      }
+    }
+  }
+  if (notes !== undefined) {
+    current.notes = notes;
+  }
+
+  userWishlist[itemIndex] = current;
+  db.wishlists.set(participantId, userWishlist);
+  res.json({ success: true, item: current });
+});
+
+apiRouter.delete('/wishlists/:participantId/:itemId', (req, res) => {
+  const { participantId, itemId } = req.params;
+  const userWishlist = db.wishlists.get(participantId) || [];
+  const filtered = userWishlist.filter(i => i.id !== itemId && i.musicId !== itemId);
+  db.wishlists.set(participantId, filtered);
+  res.json({ success: true, items: filtered });
+});
+
+apiRouter.delete('/wishlists/:participantId', (req, res) => {
+  const { participantId } = req.params;
+  db.wishlists.set(participantId, []);
+  res.json({ success: true, items: [] });
 });
 
 // ==========================================

@@ -19,17 +19,20 @@ import {
   Radio,
   Flame,
   Plus,
-  Share2
+  Share2,
+  Heart,
+  Sparkles
 } from 'lucide-react';
 import { Participant, QueueItem } from '../../types.js';
 
-export type ParticipantSubTab = 'SEARCH' | 'PLAYLIST' | 'QUEUE' | 'HISTORY';
+export type ParticipantSubTab = 'SEARCH' | 'RECOMMENDATIONS' | 'WISHLIST' | 'PLAYLIST' | 'QUEUE' | 'HISTORY';
 
 interface ParticipantSidebarProps {
   activeSubTab: ParticipantSubTab;
   setActiveSubTab: (tab: ParticipantSubTab) => void;
   participant: Participant;
   playlistCount: number;
+  wishlistCount?: number;
   queuedCount: number;
   liveSong?: QueueItem;
   myQueuedSong?: QueueItem;
@@ -61,6 +64,7 @@ export const ParticipantSidebar: React.FC<ParticipantSidebarProps> = ({
   setActiveSubTab,
   participant,
   playlistCount,
+  wishlistCount = 0,
   queuedCount,
   liveSong,
   myQueuedSong,
@@ -187,6 +191,59 @@ export const ParticipantSidebar: React.FC<ParticipantSidebarProps> = ({
           }`}>
             HD
           </span>
+        </button>
+
+        <button
+          id="btn-subtab-recommendations"
+          onClick={() => setActiveSubTab('RECOMMENDATIONS')}
+          className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-bold transition-all duration-200 ${
+            activeSubTab === 'RECOMMENDATIONS'
+              ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 text-white shadow-lg shadow-purple-600/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <Sparkles className={`w-4 h-4 ${activeSubTab === 'RECOMMENDATIONS' ? 'text-pink-300 animate-pulse' : 'text-purple-400'}`} />
+            <div className="text-left">
+              <span className="block leading-tight">Playlist IA (Gemini)</span>
+              <span className={`text-[10px] block font-normal ${activeSubTab === 'RECOMMENDATIONS' ? 'text-purple-100' : 'text-slate-500'}`}>
+                Recomendações por gênero
+              </span>
+            </div>
+          </div>
+          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-sm flex items-center gap-1">
+            IA
+          </span>
+        </button>
+
+        <button
+          id="btn-subtab-wishlist"
+          onClick={() => setActiveSubTab('WISHLIST')}
+          className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-bold transition-all duration-200 ${
+            activeSubTab === 'WISHLIST'
+              ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 text-white shadow-lg shadow-purple-600/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <Heart className={`w-4 h-4 ${activeSubTab === 'WISHLIST' ? 'fill-pink-300 text-pink-300' : 'text-pink-400'}`} />
+            <div className="text-left">
+              <span className="block leading-tight">Lista de Desejos</span>
+              <span className={`text-[10px] block font-normal ${activeSubTab === 'WISHLIST' ? 'text-purple-100' : 'text-slate-500'}`}>
+                Músicas para as próximas rodadas
+              </span>
+            </div>
+          </div>
+          {wishlistCount > 0 ? (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-sm flex items-center gap-1">
+              <Heart className="w-2.5 h-2.5 fill-white" />
+              {wishlistCount}
+            </span>
+          ) : (
+            <span className="text-[10px] text-pink-400/80 font-mono">
+              ♡ 0
+            </span>
+          )}
         </button>
 
         <button

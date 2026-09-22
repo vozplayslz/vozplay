@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Tv, Music2, Radio, AlertTriangle, QrCode, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Tv, Music2, Radio, AlertTriangle, QrCode, Sparkles, CheckCircle2, Mic2, Flame } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TVSessionDTO } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
@@ -19,6 +19,7 @@ interface TVViewProps {
   onNotifyPlayerState?: (state: string, error?: string) => void;
   lastReaction?: { participantName: string; emoji: string; label: string; timestamp?: string; _t?: number } | null;
   lastSoundboard?: { soundType: string; label: string; timestamp?: string; _t?: number } | null;
+  lastQueueEvent?: { event: string; item?: any; tv?: TVSessionDTO; _t?: number } | null;
 }
 
 interface FloatingReaction {
@@ -29,7 +30,24 @@ interface FloatingReaction {
   leftPercent: number;
 }
 
-export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReaction, lastSoundboard }) => {
+interface QueueHighlightNotice {
+  id: string;
+  participantDisplayName: string;
+  title: string;
+  artist: string;
+  versionStyle: string;
+  toneOffset?: number;
+  isNext: boolean;
+  positionText: string;
+  timestamp: number;
+}
+
+export const TVView: React.FC<TVViewProps> = ({
+  onNotifyPlayerState,
+  lastReaction,
+  lastSoundboard,
+  lastQueueEvent
+}) => {
   const [tvData, setTvData] = useState<TVSessionDTO | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -37,6 +55,14 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
   const [reactions, setReactions] = useState<FloatingReaction[]>([]);
   const [activeSoundBanner, setActiveSoundBanner] = useState<{ soundType: string; label: string } | null>(null);
   const [tvQrUrl, setTvQrUrl] = useState<string>('');
+  const [queueHighlightNotice, setQueueHighlightNotice] = useState<QueueHighlightNotice | null>(null);
+  const [isNextSongHighlighted, setIsNextSongHighlighted] = useState(false);
+
+  const prevNextSongIdRef = useRef<string | null>(null);
+  const prevQueueLengthRef = useRef<number>(0);
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const highlightTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const [completedPerformance, setCompletedPerformance] = useState<{
     singer: string;
     title: string;
@@ -190,13 +216,77 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
     }, 1000);
   };
 
-  const fetchTVSession = async () => {
+  const triggerQueueHighlight = (
+    item: {
+      id: string;
+      title: string;
+      artist: string;
+      versionStyle: any;
+      participantDisplayName: string;
+      toneOffset?: number;
+    },
+    isNext: boolean,
+    positionText: string
+  ) => {
+    setQueueHighlightNotice({
+      id: `${item.id}-${Date.now()}`,
+      participantDisplayName: item.participantDisplayName,
+      title: item.title,
+      artist: item.artist,
+      versionStyle: item.versionStyle,
+      toneOffset: item.toneOffset,
+      isNext,
+      positionText,
+      timestamp: Date.now()
+    });
+
+    setIsNextSongHighlighted(true);
+
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setQueueHighlightNotice(null);
+    }, 6500);
+
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => {
+      setIsNextSongHighlighted(false);
+    }, 6500);
+  };
+
+  const checkAndTriggerHighlight = (freshTvData: TVSessionDTO) => {
+    const next = freshTvData.queue && freshTvData.queue.length > 0 ? freshTvData.queue[0] : null;
+    const newLength = freshTvData.queue?.length || 0;
+    const prevLength = prevQueueLengthRef.current;
+    const prevNextId = prevNextSongIdRef.current;
+
+    const isFirstLoad = prevNextId === null && prevLength === 0;
+
+    if (next && !isFirstLoad) {
+      if (next.id !== prevNextId) {
+        triggerQueueHighlight(next, true, 'A Seguir • Próxima Música no Palco');
+      } else if (newLength > prevLength) {
+        const newestItem = freshTvData.queue[newLength - 1];
+        triggerQueueHighlight(
+          newestItem,
+          newLength === 1,
+          newLength === 1 ? 'A Seguir • Próxima Música no Palco' : `Fila Atualizada • ${newLength}ª Posição`
+        );
+      }
+    }
+
+    prevNextSongIdRef.current = next ? next.id : null;
+    prevQueueLengthRef.current = newLength;
+  };
+
+  const fetchTVSession = async (): Promise<TVSessionDTO | null> => {
     try {
       const res = await fetch('/api/v1/tv/session');
-      if (!res.ok) return;
+      if (!res.ok) return null;
       const json = await res.json();
       if (json && json.success) {
         setTvData(json.data);
+        checkAndTriggerHighlight(json.data);
+
         // Sync master volume to YouTube player iframe (Section 24)
         if (iframeRef.current?.contentWindow && typeof json.data.volume === 'number') {
           iframeRef.current.contentWindow.postMessage(
@@ -208,11 +298,34 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
             '*'
           );
         }
+        return json.data;
       }
     } catch {
       // Reconexão transitória
     }
+    return null;
   };
+
+  // Real-time listener for WebSocket queue updates
+  useEffect(() => {
+    if (!lastQueueEvent) return;
+
+    if (lastQueueEvent.tv) {
+      setTvData(lastQueueEvent.tv);
+      checkAndTriggerHighlight(lastQueueEvent.tv);
+    } else {
+      fetchTVSession().then((freshData) => {
+        if (freshData && lastQueueEvent.item) {
+          const isFirst = freshData.queue.length > 0 && freshData.queue[0].id === lastQueueEvent.item.id;
+          triggerQueueHighlight(
+            lastQueueEvent.item,
+            isFirst,
+            isFirst ? 'A Seguir • Próxima Música no Palco' : 'Nova Música • Fila Atualizada'
+          );
+        }
+      });
+    }
+  }, [lastQueueEvent]);
 
 
   const toggleFullscreen = () => {
@@ -425,24 +538,52 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
                   </div>
                 )}
 
-                {nextSong && (
-                  <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/60 to-indigo-950/60 border border-purple-500/30 max-w-md mx-auto text-left shadow-xl flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider text-purple-300 block">
-                        A Seguir no Palco:
+                <AnimatePresence mode="wait">
+                  {nextSong && (
+                    <motion.div
+                      key={nextSong.id}
+                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                      animate={{
+                        opacity: 1,
+                        scale: 1,
+                        y: 0,
+                        boxShadow: isNextSongHighlighted
+                          ? '0 0 30px rgba(236,72,153,0.35)'
+                          : '0 10px 25px -5px rgba(0,0,0,0.3)'
+                      }}
+                      exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                      transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                      className={`p-4 rounded-2xl border max-w-md mx-auto text-left shadow-xl flex items-center justify-between transition-colors duration-500 ${
+                        isNextSongHighlighted
+                          ? 'bg-gradient-to-r from-purple-900/80 via-pink-900/70 to-slate-900/80 border-pink-500/60 ring-1 ring-pink-500/40'
+                          : 'bg-gradient-to-r from-purple-950/60 to-indigo-950/60 border-purple-500/30'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-purple-300 block">
+                            A Seguir no Palco:
+                          </span>
+                          {isNextSongHighlighted && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-pink-500/25 text-pink-300 border border-pink-500/40 text-[9px] font-bold uppercase animate-pulse">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              Atualizado
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-base font-display font-black text-white block mt-0.5">
+                          {nextSong.participantDisplayName}
+                        </span>
+                        <span className="text-xs text-slate-300 font-medium">
+                          {nextSong.title} • <span className="text-purple-300">{nextSong.artist}</span>
+                        </span>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                        1° da Fila
                       </span>
-                      <span className="text-base font-display font-black text-white block">
-                        {nextSong.participantDisplayName}
-                      </span>
-                      <span className="text-xs text-slate-300 font-medium">
-                        {nextSong.title} • {nextSong.artist}
-                      </span>
-                    </div>
-                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                      1° da Fila
-                    </span>
-                  </div>
-                )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
           )}
@@ -451,30 +592,114 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
 
       {/* FOOTER BAR: Next Song + Upcoming Queue Ticker + Mini QR Code */}
       <div className="relative z-10 border-t border-white/10 pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-        {/* Next singer banner */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-indigo-400 font-bold text-sm">
-            2°
+        {/* Next singer banner with smooth transition & highlight glow */}
+        <motion.div
+          animate={
+            isNextSongHighlighted
+              ? {
+                  scale: [1, 1.02, 1],
+                  boxShadow: [
+                    '0 0 0px rgba(236,72,153,0)',
+                    '0 0 24px rgba(236,72,153,0.4)',
+                    '0 0 6px rgba(168,85,247,0.2)'
+                  ]
+                }
+              : {}
+          }
+          transition={{ duration: 1.4, repeat: isNextSongHighlighted ? 3 : 0 }}
+          className={`flex items-center gap-3.5 px-3.5 py-2 rounded-2xl border transition-all duration-500 ${
+            isNextSongHighlighted
+              ? 'bg-gradient-to-r from-purple-950/90 via-pink-950/80 to-slate-900/90 border-pink-500/70'
+              : 'bg-white/[0.04] border-white/[0.08]'
+          }`}
+        >
+          <div className="relative shrink-0">
+            <div
+              className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm transition-colors duration-300 ${
+                isNextSongHighlighted
+                  ? 'bg-pink-500 text-white shadow-lg shadow-pink-500/40'
+                  : 'bg-white/10 text-indigo-400'
+              }`}
+            >
+              {nextSong ? '2°' : '—'}
+            </div>
+            {isNextSongHighlighted && (
+              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-pink-500" />
+              </span>
+            )}
           </div>
-          <div>
-            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
-              A Seguir:
-            </span>
-            <span className="text-xs sm:text-sm font-bold text-white">
-              {nextSong ? `${nextSong.participantDisplayName} • ${nextSong.title}` : 'Fila livre para novas músicas'}
-            </span>
-          </div>
-        </div>
 
-        {/* Up to 3 upcoming songs ticker */}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
+                A Seguir:
+              </span>
+              {isNextSongHighlighted && (
+                <span className="inline-flex items-center gap-1 text-[9px] uppercase font-black px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30 animate-pulse">
+                  <Sparkles className="w-2.5 h-2.5" />
+                  Próxima
+                </span>
+              )}
+            </div>
+            <AnimatePresence mode="wait">
+              {nextSong ? (
+                <motion.div
+                  key={nextSong.id}
+                  initial={{ opacity: 0, y: 6, filter: 'blur(2px)' }}
+                  animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                  exit={{ opacity: 0, y: -6, filter: 'blur(2px)' }}
+                  transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                  className="flex items-center gap-2 truncate"
+                >
+                  <span className="text-xs sm:text-sm font-bold text-white truncate">
+                    {nextSong.participantDisplayName}
+                  </span>
+                  <span className="text-xs text-purple-300 font-medium truncate">
+                    • {nextSong.title}
+                  </span>
+                  <span className="text-[11px] text-slate-400 hidden xl:inline">
+                    ({nextSong.artist})
+                  </span>
+                </motion.div>
+              ) : (
+                <motion.span
+                  key="empty-queue"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="text-xs sm:text-sm font-medium text-slate-400"
+                >
+                  Fila livre para novas músicas
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+
+        {/* Up to 3 upcoming songs ticker with fluid staggered motion */}
         {tvData?.queue && tvData.queue.length > 1 && (
           <div className="hidden lg:flex items-center gap-2 text-xs text-slate-400">
-            <span className="text-[10px] uppercase font-bold text-slate-500">Próximos:</span>
-            {tvData.queue.slice(1, 4).map((q, idx) => (
-              <span key={q.id} className="px-2 py-1 rounded-md bg-white/5 border border-white/5 text-slate-300">
-                {idx + 3}º {q.participantDisplayName} ({q.title})
-              </span>
-            ))}
+            <span className="text-[10px] uppercase font-bold text-slate-500 shrink-0">Próximos:</span>
+            <div className="flex items-center gap-1.5 overflow-hidden">
+              <AnimatePresence initial={false}>
+                {tvData.queue.slice(1, 4).map((q, idx) => (
+                  <motion.span
+                    key={q.id}
+                    initial={{ opacity: 0, scale: 0.9, x: 12 }}
+                    animate={{ opacity: 1, scale: 1, x: 0 }}
+                    exit={{ opacity: 0, scale: 0.9, x: -12 }}
+                    transition={{ duration: 0.35, ease: 'easeOut' }}
+                    className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1.5 shadow-sm whitespace-nowrap"
+                  >
+                    <span className="text-pink-400 font-mono font-bold text-[10px]">{idx + 3}º</span>
+                    <span className="text-white font-medium">{q.participantDisplayName}</span>
+                    <span className="text-slate-400 text-[11px]">({q.title})</span>
+                  </motion.span>
+                ))}
+              </AnimatePresence>
+            </div>
           </div>
         )}
 
@@ -492,6 +717,65 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
         </div>
       </div>
 
+      {/* Real-Time Queue Transition & Next Song Highlight Card on TV */}
+      <AnimatePresence>
+        {queueHighlightNotice && (
+          <motion.div
+            key={queueHighlightNotice.id}
+            initial={{ opacity: 0, y: -30, scale: 0.94, filter: 'blur(6px)' }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -20, scale: 0.96, filter: 'blur(4px)' }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            className="fixed top-20 right-6 sm:right-10 z-50 max-w-md w-full pointer-events-none"
+          >
+            <div className="relative overflow-hidden rounded-3xl bg-[#0b0f1e]/95 border border-pink-500/40 p-4 sm:p-5 shadow-2xl shadow-purple-950/70 backdrop-blur-2xl ring-1 ring-white/10">
+              {/* Subtle ambient lighting */}
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-pink-500/20 rounded-full blur-2xl pointer-events-none" />
+              <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-purple-500/20 rounded-full blur-2xl pointer-events-none" />
+
+              <div className="relative z-10 flex items-start gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-pink-500/30 shrink-0">
+                  <Mic2 className="w-6 h-6 animate-pulse" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-pink-500/20 border border-pink-500/30 text-pink-300 text-[10px] font-black uppercase tracking-wider">
+                      <Sparkles className="w-3 h-3 text-pink-400" />
+                      <span>{queueHighlightNotice.positionText}</span>
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">Tempo Real</span>
+                  </div>
+                  <h4 className="text-lg sm:text-xl font-display font-black text-white truncate tracking-tight">
+                    {queueHighlightNotice.participantDisplayName}
+                  </h4>
+                  <p className="text-xs sm:text-sm text-slate-200 truncate font-medium mt-0.5">
+                    {queueHighlightNotice.title} <span className="text-purple-300 font-semibold">• {queueHighlightNotice.artist}</span>
+                  </p>
+                  <div className="flex items-center gap-2 mt-2 text-[11px] text-slate-400">
+                    <span className="px-2 py-0.5 rounded-md bg-white/[0.06] border border-white/10 text-slate-300">
+                      {queueHighlightNotice.versionStyle}
+                    </span>
+                    {queueHighlightNotice.toneOffset !== undefined && queueHighlightNotice.toneOffset !== 0 && (
+                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono font-bold text-[10px]">
+                        Tom: {queueHighlightNotice.toneOffset > 0 ? `+${queueHighlightNotice.toneOffset}` : queueHighlightNotice.toneOffset}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress timer bar */}
+              <motion.div
+                initial={{ width: '100%' }}
+                animate={{ width: '0%' }}
+                transition={{ duration: 6.5, ease: 'linear' }}
+                className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-pink-500 to-purple-600"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* PRD Section 47: DJ Soundboard Visual Banner on TV */}
       <AnimatePresence>
         {activeSoundBanner && (
@@ -508,6 +792,10 @@ export const TVView: React.FC<TVViewProps> = ({ onNotifyPlayerState, lastReactio
                  activeSoundBanner.soundType === 'drums' ? '🥁' :
                  activeSoundBanner.soundType === 'airhorn' ? '📣' :
                  activeSoundBanner.soundType === 'cheer' ? '🎉' :
+                 activeSoundBanner.soundType === 'whistle' ? '😙🎶' :
+                 activeSoundBanner.soundType === 'crowd' ? '🙌🔥' :
+                 activeSoundBanner.soundType === 'rimshot' ? '🥁✨' :
+                 activeSoundBanner.soundType === 'laser' ? '⚡' :
                  activeSoundBanner.soundType === 'vinheta' ? '✨' : '👎'}
               </span>
               <span className="tracking-wide">DJ EFEITO: {activeSoundBanner.label}!</span>

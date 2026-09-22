@@ -34,6 +34,7 @@ import {
 import { QueueItem, PresenceCode, Session, PlaybackStatus } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
 import { ControllerSidebar, ControllerSectionFilter } from './ControllerSidebar.js';
+import { SoundboardPanel } from './SoundboardPanel.js';
 
 interface ControllerViewProps {
   session: Session | null;
@@ -672,42 +673,10 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
 
       {/* PRD Section 47: DJ SOUNDBOARD & AUDIO TRIGGERS */}
       {(currentFilter === 'ALL' || currentFilter === 'SOUNDBOARD') && (
-      <div className="rounded-3xl bg-[#0d1222]/95 border border-white/10 p-5 sm:p-7 shadow-2xl space-y-4 backdrop-blur-xl ring-1 ring-white/5">
-        <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
-          <div className="flex items-center gap-2">
-            <Volume2 className="w-4 h-4 text-pink-400" />
-            <h3 className="text-xs font-black uppercase tracking-wider text-slate-200">
-              DJ Soundboard (Efeitos Sonoros na TV & Som)
-            </h3>
-          </div>
-          <span className="text-[10px] text-purple-300 font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20">
-            Disparo em Tempo Real
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {[
-            { id: 'applause', label: 'Aplausos', icon: '👏', desc: 'Palmas da Galera' },
-            { id: 'drums', label: 'Tambores', icon: '🥁', desc: 'Rufar de Suspense' },
-            { id: 'airhorn', label: 'Air Horn', icon: '📣', desc: 'Corneta de DJ' },
-            { id: 'cheer', label: 'Festa', icon: '🎉', desc: 'Assobios & Vibração' },
-            { id: 'boo', label: 'Uhhh / Vaia', icon: '👎', desc: 'Trote Amigável' },
-            { id: 'vinheta', label: 'Vinheta', icon: '✨', desc: 'Jingle VozPlay' }
-          ].map((sound) => (
-            <button
-              key={sound.id}
-              onClick={() => handleTriggerSound(sound.id, sound.label)}
-              className="p-4 rounded-2xl bg-[#090d18] hover:bg-gradient-to-b hover:from-purple-950/60 hover:to-indigo-950/40 border border-white/[0.08] hover:border-purple-500/50 text-left transition-all flex flex-col justify-between group active:scale-95 shadow-md ring-1 ring-white/[0.02]"
-            >
-              <div className="text-3xl mb-2 group-hover:scale-125 transition-transform">{sound.icon}</div>
-              <div>
-                <div className="text-xs font-bold text-white group-hover:text-purple-300">{sound.label}</div>
-                <div className="text-[10px] text-slate-400 mt-0.5">{sound.desc}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
+        <SoundboardPanel
+          tvConnected={tvConnected}
+          onFeedback={showFeedback}
+        />
       )}
 
       {/* QUEUE MONITOR FOR CONTROLLER */}

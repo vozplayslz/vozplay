@@ -47,6 +47,7 @@ export default function App() {
   const [tvConnected, setTvConnected] = useState(false);
   const [lastReaction, setLastReaction] = useState<any>(null);
   const [lastSoundboard, setLastSoundboard] = useState<any>(null);
+  const [lastQueueEvent, setLastQueueEvent] = useState<{ event: WSEventType; item?: any; tv?: any; _t: number } | null>(null);
 
   // Navigation sidebar & header state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -87,6 +88,20 @@ export default function App() {
       if (event === 'state.sync') {
         if (payload?.session) setSession(payload.session);
         if (payload?.tvConnected !== undefined) setTvConnected(payload.tvConnected);
+        if (payload?.tv) {
+          setLastQueueEvent({ event, tv: payload.tv, _t: Date.now() });
+        }
+      }
+      if (
+        event === 'queue.added' ||
+        event === 'queue.updated' ||
+        event === 'queue.cancelled' ||
+        event === 'queue.playing' ||
+        event === 'queue.completed' ||
+        event === 'player.play' ||
+        event === 'player.state_changed'
+      ) {
+        setLastQueueEvent({ event, item: payload?.item, tv: payload?.tv, _t: Date.now() });
       }
       if (event === 'reaction.sent') {
         setLastReaction({ ...payload, _t: Date.now() });
@@ -165,6 +180,7 @@ export default function App() {
           {activeTab === 'PARTICIPANT' && (
             <ParticipantView
               sessionCode={session?.code || 'SLZ-704'}
+              lastSoundboard={lastSoundboard}
               onOpenTracker={(id) => {
                 setTrackerItemId(id);
                 setActiveTab('TRACKER');
@@ -192,6 +208,7 @@ export default function App() {
             <TVView
               lastReaction={lastReaction}
               lastSoundboard={lastSoundboard}
+              lastQueueEvent={lastQueueEvent}
               onNotifyPlayerState={(state, error) => {
                 sendWs('TV_PLAYER_STATE', { playbackState: state, error });
               }}

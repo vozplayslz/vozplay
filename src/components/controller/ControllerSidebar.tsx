@@ -91,7 +91,7 @@ export const ControllerSidebar: React.FC<ControllerSidebarProps> = ({
       label: 'DJ Soundboard',
       description: 'Efeitos sonoros e vinhetas',
       icon: Sparkles,
-      badge: '6 FX'
+      badge: '10 FX'
     },
     {
       id: 'ADD_MANUAL' as ControllerSectionFilter,

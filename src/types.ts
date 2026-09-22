@@ -52,6 +52,21 @@ export interface Music {
   versions: MusicVersion[];
 }
 
+export interface WishlistItem {
+  id: string;
+  participantId: string;
+  musicId: string;
+  musicTitle: string;
+  musicArtist: string;
+  genre: string;
+  coverUrl?: string;
+  preferredVersionId?: string;
+  preferredVersionStyle?: MusicVersionStyle;
+  preferredToneOffset?: number; // -3 to +3 semitones (0 is default original)
+  notes?: string;
+  addedAt: string;
+}
+
 export interface PlaylistItem {
   id: string;
   participantId: string;
@@ -71,6 +86,9 @@ export interface QueueItem {
   sessionId: string;
   participantId: string;
   participantDisplayName: string;
+  partnerParticipantId?: string;
+  partnerDisplayName?: string;
+  isDuet?: boolean;
   musicId: string;
   musicTitle: string;
   musicArtist: string;
@@ -84,6 +102,27 @@ export interface QueueItem {
   completedAt?: string;
   errorMessage?: string;
   orderIndex: number;
+}
+
+export type DuetInvitationStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED' | 'EXPIRED';
+
+export interface DuetInvitation {
+  id: string;
+  sessionId: string;
+  senderParticipantId: string;
+  senderDisplayName: string;
+  targetParticipantId: string;
+  targetDisplayName: string;
+  musicId: string;
+  musicTitle: string;
+  musicArtist: string;
+  versionId: string;
+  versionStyle: MusicVersionStyle;
+  toneOffset: number;
+  status: DuetInvitationStatus;
+  createdAt: string;
+  expiresAt: string;
+  respondedAt?: string;
 }
 
 export interface Session {
@@ -146,6 +185,8 @@ export interface TVSessionDTO {
     versionStyle: MusicVersionStyle;
     youtubeVideoId: string;
     participantDisplayName: string;
+    partnerDisplayName?: string;
+    isDuet?: boolean;
     toneOffset?: number;
   } | null;
   queue: Array<{
@@ -154,6 +195,8 @@ export interface TVSessionDTO {
     artist: string;
     versionStyle: MusicVersionStyle;
     participantDisplayName: string;
+    partnerDisplayName?: string;
+    isDuet?: boolean;
     toneOffset?: number;
   }>;
   playbackState: PlaybackStatus;
@@ -239,6 +282,10 @@ export type WSEventType =
   | 'presence.renewed'
   | 'tv.connected'
   | 'tv.disconnected'
+  | 'duet.invitation_received'
+  | 'duet.accepted'
+  | 'duet.declined'
+  | 'duet.cancelled'
   | 'reaction.sent'
   | 'soundboard.play'
   | 'state.sync';
@@ -248,4 +295,29 @@ export interface WSMessage<T = unknown> {
   sessionId: string;
   payload: T;
   timestamp: string;
+}
+
+// ==========================================
+// GEMINI AI - RECOMENDAÇÕES DE PLAYLIST
+// ==========================================
+export interface RecommendedTrack {
+  title: string;
+  artist: string;
+  suggestedToneOffset: number; // -3 to +3 semitons
+  karaokeTip: string;
+  energyLevel: 'Baixa' | 'Média' | 'Alta' | 'Explosiva';
+  difficulty: 'Fácil' | 'Médio' | 'Desafiador';
+  catalogMusicId?: string | null;
+  hasMatchInCatalog?: boolean;
+}
+
+export interface RecommendedPlaylist {
+  genre: string;
+  playlistTitle: string;
+  description: string;
+  vibeTag: string;
+  curatorNote?: string;
+  tracks: RecommendedTrack[];
+  source: 'gemini' | 'catalog_fallback';
+  generatedAt?: string;
 }

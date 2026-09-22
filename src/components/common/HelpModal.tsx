@@ -29,7 +29,9 @@ import {
   Clock,
   AlertTriangle,
   KeyRound,
-  Sparkles
+  Sparkles,
+  Heart,
+  Headphones
 } from 'lucide-react';
 
 interface HelpModalProps {
@@ -207,6 +209,33 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                       Monitore sua posição na fila (<code className="text-emerald-300 font-mono">#1, #2...</code>) e o tempo estimado de espera. Quando faltar 1 música, prepare-se para subir ao palco!
                     </p>
                   </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-pink-500/20 space-y-2 sm:col-span-2">
+                    <div className="flex items-center gap-2 text-pink-400 font-bold text-xs uppercase tracking-wider">
+                      <Heart className="w-4 h-4 fill-pink-500/30" /> 5. Lista de Desejos (Próximas Rodadas)
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Encontrou músicas incríveis que quer cantar mais tarde? Toque no botão de coração <strong>♡</strong> no catálogo ou no modal. Suas músicas ficam salvas na aba <strong>Lista de Desejos</strong> com o tom vocal configurado, permitindo entrar na fila com apenas 1 clique quando for o momento da sua próxima apresentação.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-purple-500/30 space-y-2 sm:col-span-2">
+                    <div className="flex items-center gap-2 text-purple-300 font-bold text-xs uppercase tracking-wider">
+                      <Sparkles className="w-4 h-4 text-pink-400" /> 6. Playlist Recomendada por IA (Gemini)
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Em dúvida sobre o que cantar? Abra a aba <strong>Playlist IA</strong> ou toque em <em>Sugerir Playlist</em> ao filtrar um gênero musical. A IA do Gemini analisa o catálogo do bar e sugere uma seleção equilibrada de hinos para karaokê, completa com indicação de tons vocais confortáveis, nível de energia e dicas práticas de palco para animar o público.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-cyan-500/30 space-y-2 sm:col-span-2">
+                    <div className="flex items-center gap-2 text-cyan-300 font-bold text-xs uppercase tracking-wider">
+                      <Headphones className="w-4 h-4 text-cyan-400" /> 7. Ouvir Prévia no Próprio Aparelho (Sem Surpresas no Palco)
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Para evitar desistências ou ficar pulando músicas no palco, toque no ícone de <strong>fones de ouvido 🎧</strong> ou em <strong>Ouvir Prévia</strong> no modal da música. O áudio e vídeo tocam exclusivamente no seu celular (fones ou alto-falante), permitindo que você confira a introdução, o tom e a versão antes de enviar para o telão da TV.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 to-pink-950/40 border border-purple-500/30 space-y-2">
@@ -258,10 +287,13 @@ export const HelpModal: React.FC<HelpModalProps> = ({
 
                   <div className="p-4 rounded-2xl bg-[#111728] border border-white/[0.07] space-y-2">
                     <h4 className="text-xs font-bold text-pink-300 uppercase tracking-wider flex items-center gap-2">
-                      <Sparkles className="w-4 h-4" /> DJ Soundboard em Tempo Real
+                      <Sparkles className="w-4 h-4" /> DJ Soundboard Profissional & Broadcast (TV + Mobile)
                     </h4>
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      Use os 6 botões de efeitos sonoros (Palmas, Rimshot, Arerê, Uuuuh, Show, Vinheta VozPlay). Eles reproduzem o áudio correspondente na mesa e no sistema de som do salão, além de exibir uma vinheta animada na TV.
+                      Painel com <strong>10 efeitos sonoros sintetizados em tempo real via Web Audio</strong> (Aplausos, Assobios & Torcida, Gritos & Festa, Coro / Arerê, Air Horn, Tambores de Suspense, Ba-Dum-Tss, Uhhh / Vaia Amiga, Vinheta VozPlay e Laser Drop):<br />
+                      - <strong>Disparo Geral (Broadcast):</strong> Transmite instantaneamente para a TV do lounge e para todos os celulares dos participantes conectados.<br />
+                      - <strong>Pré-escuta no Fone:</strong> O ícone de fone permite ouvir o efeito apenas na mesa/fone de ouvido sem tocar no salão.<br />
+                      - <strong>Atalhos de Teclado:</strong> Use as teclas numéricas <code className="text-pink-300 font-mono font-bold">[1]</code> a <code className="text-pink-300 font-mono font-bold">[9]</code> e <code className="text-pink-300 font-mono font-bold">[0]</code> para disparos imediatos com apenas uma mão na mesa.
                     </p>
                   </div>
                 </div>

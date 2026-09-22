@@ -13,6 +13,7 @@ import {
   ParticipantIdentity,
   QueueItem,
   PlaylistItem,
+  WishlistItem,
   PresenceCode,
   PlaybackStatus,
   TVSessionDTO,
@@ -387,6 +388,74 @@ const INITIAL_CATALOG: Music[] = [
         quality: '720p'
       }
     ]
+  },
+  {
+    id: 'm-15',
+    title: 'Bad',
+    artist: 'U2',
+    genre: 'Classic Rock',
+    coverUrl: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&q=80',
+    versions: [
+      {
+        id: 'v-15-1',
+        musicId: 'm-15',
+        style: 'karaoke',
+        label: 'Karaokê com Letra Oficial (HD)',
+        youtubeVideoId: 'Vz_H11K2WjI',
+        durationSec: 360,
+        quality: '1080p',
+        audioKey: 'A'
+      },
+      {
+        id: 'v-15-2',
+        musicId: 'm-15',
+        style: 'live',
+        label: 'Versão Ao Vivo Live Aid (Estádio)',
+        youtubeVideoId: 'Vz_H11K2WjI',
+        durationSec: 420,
+        quality: '1080p',
+        audioKey: 'A'
+      },
+      {
+        id: 'v-15-3',
+        musicId: 'm-15',
+        style: 'playback',
+        label: 'Playback Instrumental com Guitarras Delay',
+        youtubeVideoId: 'fJ9rUzIMcZQ',
+        durationSec: 360,
+        quality: '1080p',
+        audioKey: 'A'
+      }
+    ]
+  },
+  {
+    id: 'm-16',
+    title: 'With or Without You',
+    artist: 'U2',
+    genre: 'Classic Rock',
+    coverUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80',
+    versions: [
+      {
+        id: 'v-16-1',
+        musicId: 'm-16',
+        style: 'karaoke',
+        label: 'Karaokê com Letra Oficial (HD)',
+        youtubeVideoId: 'XmSdTa9kaiQ',
+        durationSec: 295,
+        quality: '1080p',
+        audioKey: 'D'
+      },
+      {
+        id: 'v-16-2',
+        musicId: 'm-16',
+        style: 'acustico',
+        label: 'Versão Acústica Violão & Voz',
+        youtubeVideoId: 'c5QfXj533f0',
+        durationSec: 280,
+        quality: '720p',
+        audioKey: 'D'
+      }
+    ]
   }
 ];
 
@@ -406,6 +475,7 @@ class VozPlayDB {
   public participants: Map<string, Participant> = new Map();
   public identities: Map<string, ParticipantIdentity> = new Map(); // normalizedWhatsapp -> Identity
   public playlists: Map<string, PlaylistItem[]> = new Map(); // participantId -> items
+  public wishlists: Map<string, WishlistItem[]> = new Map(); // participantId -> WishlistItem[]
   public queue: QueueItem[] = [];
   public devices: Map<string, DeviceInfo> = new Map(); // deviceId -> DeviceInfo (Section 36 & 37)
   public playbackState: {

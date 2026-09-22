@@ -27,18 +27,36 @@ import {
   KeyRound,
   Sparkles,
   Radio,
-  RefreshCw
+  RefreshCw,
+  Volume2,
+  VolumeX,
+  BellRing,
+  Heart,
+  Headphones
 } from 'lucide-react';
-import { Participant, Music, QueueItem, PlaylistItem, MusicVersion } from '../../types.js';
+import { motion, AnimatePresence } from 'motion/react';
+import { Participant, Music, QueueItem, PlaylistItem, MusicVersion, WishlistItem } from '../../types.js';
+import { playDJAudioEffect } from '../../utils/synthAudio.js';
 import { ParticipantSidebar, ParticipantSubTab } from './ParticipantSidebar.js';
+import { RecommendedPlaylistView } from './RecommendedPlaylistView.js';
 
 interface ParticipantViewProps {
   sessionCode?: string;
   onQueueUpdated?: () => void;
   onOpenTracker?: (queueItemId: string) => void;
+  lastSoundboard?: { soundType: string; label: string; timestamp?: string; _t?: number } | null;
 }
 
-export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 'SLZ-704', onQueueUpdated, onOpenTracker }) => {
+export const ParticipantView: React.FC<ParticipantViewProps> = ({
+  sessionCode = 'SLZ-704',
+  onQueueUpdated,
+  onOpenTracker,
+  lastSoundboard
+}) => {
+  // Mobile Sound Effects state (PRD Section 47)
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [activeSoundAlert, setActiveSoundAlert] = useState<{ soundType: string; label: string } | null>(null);
+
   // Participant Identity State
   const [participant, setParticipant] = useState<Participant | null>(null);
   const [nameInput, setNameInput] = useState('');
@@ -57,7 +75,13 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
   const [presenceSuccess, setPresenceSuccess] = useState('');
 
   // Navigation sub-tabs
-  const [activeSubTab, setActiveSubTab] = useState<'SEARCH' | 'PLAYLIST' | 'QUEUE' | 'HISTORY'>('SEARCH');
+  const [activeSubTab, setActiveSubTab] = useState<ParticipantSubTab>('SEARCH');
+
+  // Wishlist State (Lista de Desejos para Próximas Rodadas)
+  const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
+  const [wishlistSearchQuery, setWishlistSearchQuery] = useState('');
+  const [wishlistGenreFilter, setWishlistGenreFilter] = useState('Todos');
+  const [isLoadingWishlist, setIsLoadingWishlist] = useState(false);
 
   // Music Catalog & Search
   const [catalog, setCatalog] = useState<Music[]>([]);
@@ -70,6 +94,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
   const [selectedMusic, setSelectedMusic] = useState<Music | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<MusicVersion | null>(null);
   const [selectedToneOffset, setSelectedToneOffset] = useState<number>(0);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState<boolean>(false);
 
   // Personal Playlist & Queue
   const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
@@ -104,10 +129,41 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
   const [customStyle, setCustomStyle] = useState('Karaokê');
   const [isSubmittingCustom, setIsSubmittingCustom] = useState(false);
 
+  // PRD Section 47: Real-time Soundboard Broadcast to Mobile
+  useEffect(() => {
+    if (!lastSoundboard) return;
+
+    setActiveSoundAlert({
+      soundType: lastSoundboard.soundType,
+      label: lastSoundboard.label
+    });
+
+    if (soundEnabled) {
+      try {
+        playDJAudioEffect(lastSoundboard.soundType);
+      } catch (err) {
+        // Safe catch for mobile browser autoplay policy
+      }
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try {
+        navigator.vibrate([40, 60, 40]);
+      } catch (e) {}
+    }
+
+    const timer = setTimeout(() => {
+      setActiveSoundAlert(null);
+    }, 4500);
+
+    return () => clearTimeout(timer);
+  }, [lastSoundboard, soundEnabled]);
+
   // Load Catalog and register device handshake on mount
   useEffect(() => {
     fetchCatalog();
     fetchQueue();
+    fetchWishlist();
 
     fetch('/api/v1/devices/handshake', {
       method: 'POST',
@@ -128,6 +184,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
       fetchQueue();
       if (participant) {
         fetchPlaylist(participant.id);
+        fetchWishlist(participant.id);
       }
     }, 4000);
     return () => clearInterval(timer);
@@ -176,6 +233,42 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
     }
   };
 
+  const fetchWishlist = async (pId?: string) => {
+    try {
+      setIsLoadingWishlist(true);
+      const activeId = pId || participant?.id;
+      const localKey = activeId ? `vozplay_wishlist_${activeId}` : 'vozplay_wishlist_guest';
+      const cached = typeof window !== 'undefined' ? localStorage.getItem(localKey) : null;
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed)) {
+            setWishlist(parsed);
+          }
+        } catch {
+          // ignore cache parse error
+        }
+      }
+
+      if (activeId) {
+        const res = await fetch(`/api/v1/wishlists/${activeId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.success && Array.isArray(data.items)) {
+            setWishlist(data.items);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(localKey, JSON.stringify(data.items));
+            }
+          }
+        }
+      }
+    } catch {
+      // Reconexão transitória
+    } finally {
+      setIsLoadingWishlist(false);
+    }
+  };
+
   const fetchHistory = async (pId: string) => {
     try {
       const res = await fetch(`/api/v1/participants/${pId}/history`);
@@ -219,6 +312,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
 
       setParticipant(data.participant);
       fetchPlaylist(data.participant.id);
+      fetchWishlist(data.participant.id);
       if (data.participant.whatsapp) {
         fetchHistory(data.participant.id);
       }
@@ -227,6 +321,132 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
     } finally {
       setIsRegistering(false);
     }
+  };
+
+  // Wishlist Actions (Lista de Desejos - Próximas Rodadas)
+  const handleToggleWishlist = async (music: Music, preferredVersion?: MusicVersion, toneOffset = 0) => {
+    const existing = wishlist.find((w) => w.musicId === music.id);
+    const activeId = participant?.id;
+    const localKey = activeId ? `vozplay_wishlist_${activeId}` : 'vozplay_wishlist_guest';
+
+    if (existing) {
+      // Remover da lista
+      const updated = wishlist.filter((w) => w.musicId !== music.id);
+      setWishlist(updated);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(localKey, JSON.stringify(updated));
+      }
+      if (activeId) {
+        fetch(`/api/v1/wishlists/${activeId}/${existing.id}`, { method: 'DELETE' }).catch(() => {});
+      }
+      showFeedback(`"${music.title}" removida da Lista de Desejos.`, 'success');
+    } else {
+      // Adicionar à lista
+      const version = preferredVersion || music.versions[0];
+      const newItem: WishlistItem = {
+        id: 'wish-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        participantId: activeId || 'guest',
+        musicId: music.id,
+        musicTitle: music.title,
+        musicArtist: music.artist,
+        genre: music.genre,
+        coverUrl: music.coverUrl,
+        preferredVersionId: version?.id,
+        preferredVersionStyle: version?.style,
+        preferredToneOffset: toneOffset,
+        addedAt: new Date().toISOString()
+      };
+      const updated = [newItem, ...wishlist];
+      setWishlist(updated);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(localKey, JSON.stringify(updated));
+      }
+      if (activeId) {
+        fetch(`/api/v1/wishlists/${activeId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            musicId: music.id,
+            preferredVersionId: version?.id,
+            preferredToneOffset: toneOffset
+          })
+        }).catch(() => {});
+      }
+      showFeedback(`"${music.title}" salva na sua Lista de Desejos para as próximas rodadas!`, 'success');
+    }
+  };
+
+  const handleRemoveFromWishlist = async (itemId: string, title?: string) => {
+    const activeId = participant?.id;
+    const localKey = activeId ? `vozplay_wishlist_${activeId}` : 'vozplay_wishlist_guest';
+    const updated = wishlist.filter((w) => w.id !== itemId && w.musicId !== itemId);
+    setWishlist(updated);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(localKey, JSON.stringify(updated));
+    }
+    if (activeId) {
+      fetch(`/api/v1/wishlists/${activeId}/${itemId}`, { method: 'DELETE' }).catch(() => {});
+    }
+    showFeedback(title ? `"${title}" removida dos Desejos.` : 'Música removida da Lista de Desejos.', 'success');
+  };
+
+  const handleClearWishlist = async () => {
+    if (wishlist.length === 0) return;
+    const activeId = participant?.id;
+    const localKey = activeId ? `vozplay_wishlist_${activeId}` : 'vozplay_wishlist_guest';
+    setWishlist([]);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(localKey, JSON.stringify([]));
+    }
+    if (activeId) {
+      fetch(`/api/v1/wishlists/${activeId}`, { method: 'DELETE' }).catch(() => {});
+    }
+    showFeedback('Lista de Desejos limpa com sucesso.', 'success');
+  };
+
+  const handleUpdateWishlistTone = async (itemId: string, newTone: number) => {
+    const tone = Math.max(-3, Math.min(3, newTone));
+    const updated = wishlist.map((w) => (w.id === itemId ? { ...w, preferredToneOffset: tone } : w));
+    setWishlist(updated);
+    const activeId = participant?.id;
+    const localKey = activeId ? `vozplay_wishlist_${activeId}` : 'vozplay_wishlist_guest';
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(localKey, JSON.stringify(updated));
+    }
+    if (activeId) {
+      fetch(`/api/v1/wishlists/${activeId}/${itemId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferredToneOffset: tone })
+      }).catch(() => {});
+    }
+  };
+
+  const handleSingFromWishlist = (item: WishlistItem) => {
+    const foundMusic = catalog.find((m) => m.id === item.musicId) || {
+      id: item.musicId,
+      title: item.musicTitle,
+      artist: item.musicArtist,
+      genre: item.genre,
+      coverUrl: item.coverUrl,
+      versions: [
+        {
+          id: item.preferredVersionId || 'v-default',
+          musicId: item.musicId,
+          style: item.preferredVersionStyle || 'karaoke',
+          label: 'Versão Karaokê Oficial',
+          youtubeVideoId: '',
+          durationSec: 240
+        }
+      ]
+    };
+
+    const targetVersion = foundMusic.versions.find((v) => v.id === item.preferredVersionId) || foundMusic.versions[0];
+    const targetTone = item.preferredToneOffset !== undefined ? item.preferredToneOffset : 0;
+
+    setSelectedMusic(foundMusic);
+    setSelectedVersion(targetVersion);
+    setSelectedToneOffset(targetTone);
   };
 
   // 4-Digit Presence Code Verification (Section 13)
@@ -327,6 +547,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
 
       setSelectedMusic(null);
       setSelectedToneOffset(0);
+      setIsPreviewPlaying(false);
       fetchQueue();
       fetchPlaylist(participant.id);
       showFeedback(data.message, 'success');
@@ -430,10 +651,64 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
     setTimeout(() => setActionFeedback(null), 4000);
   };
 
+  // Floating soundboard broadcast alert toast for mobile
+  const renderSoundboardAlert = () => (
+    <AnimatePresence>
+      {activeSoundAlert && (
+        <motion.div
+          initial={{ opacity: 0, y: -24, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -20, scale: 0.95 }}
+          transition={{ type: 'spring', damping: 15 }}
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[92%] pointer-events-none"
+        >
+          <div className="p-3.5 rounded-2xl bg-[#0e1322]/95 border border-pink-500/50 shadow-2xl shadow-pink-500/20 backdrop-blur-xl flex items-center justify-between gap-3 text-white ring-1 ring-white/10">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl animate-bounce">
+                {activeSoundAlert.soundType === 'applause' ? '👏' :
+                 activeSoundAlert.soundType === 'whistle' ? '😙🎶' :
+                 activeSoundAlert.soundType === 'cheer' ? '🎉' :
+                 activeSoundAlert.soundType === 'crowd' ? '🙌🔥' :
+                 activeSoundAlert.soundType === 'airhorn' ? '📣' :
+                 activeSoundAlert.soundType === 'drums' ? '🥁' :
+                 activeSoundAlert.soundType === 'rimshot' ? '🥁✨' :
+                 activeSoundAlert.soundType === 'laser' ? '⚡' :
+                 activeSoundAlert.soundType === 'vinheta' ? '✨' : '👎'}
+              </span>
+              <div className="text-left leading-tight">
+                <span className="text-[10px] uppercase font-black tracking-wider text-pink-400 block flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-ping inline-block" />
+                  Mesa do DJ • Ao Vivo
+                </span>
+                <span className="text-xs font-bold text-white">
+                  {activeSoundAlert.label}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pointer-events-auto">
+              <button
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                className={`p-1.5 rounded-lg border text-xs transition ${
+                  soundEnabled
+                    ? 'bg-purple-500/20 border-purple-500/30 text-purple-300'
+                    : 'bg-white/5 border-white/10 text-slate-500'
+                }`}
+                title={soundEnabled ? 'Silenciar som no celular' : 'Ativar som no celular'}
+              >
+                {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
   // If participant is not registered yet, show Clean Welcome & Register Step
   if (!participant) {
     return (
       <div className="max-w-md mx-auto p-4 sm:p-6 my-8">
+        {renderSoundboardAlert()}
         <div className="relative rounded-3xl bg-[#0d1222]/90 border border-white/10 p-6 sm:p-8 shadow-2xl backdrop-blur-xl overflow-hidden">
           <div className="absolute -top-24 -right-24 w-56 h-56 rounded-full bg-purple-600/15 blur-3xl pointer-events-none" />
           <div className="absolute -bottom-24 -left-24 w-56 h-56 rounded-full bg-pink-600/10 blur-3xl pointer-events-none" />
@@ -533,6 +808,9 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
 
   return (
     <div className="max-w-7xl mx-auto p-3 sm:p-6 pb-28">
+      {/* Floating Soundboard Broadcast Alert on Mobile */}
+      {renderSoundboardAlert()}
+
       {/* Global Feedback Message */}
       {actionFeedback && (
         <div
@@ -582,6 +860,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
           setActiveSubTab={setActiveSubTab}
           participant={participant}
           playlistCount={playlist.length}
+          wishlistCount={wishlist.length}
           queuedCount={queue.filter((q) => q.status === 'QUEUED').length}
           liveSong={liveSong}
           myQueuedSong={myQueuedSong}
@@ -605,7 +884,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
           <div className="flex lg:hidden items-center gap-1.5 p-1.5 rounded-2xl bg-[#0c111e]/90 border border-white/[0.07] mb-5 overflow-x-auto shadow-inner no-scrollbar">
             <button
               onClick={() => setActiveSubTab('SEARCH')}
-              className={`flex-1 min-w-[95px] py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              className={`flex-1 min-w-[90px] py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
                 activeSubTab === 'SEARCH'
                   ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200'
@@ -613,6 +892,35 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
             >
               <Search className="w-3.5 h-3.5" />
               <span>Explorar</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSubTab('RECOMMENDATIONS')}
+              className={`flex-1 min-w-[95px] py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                activeSubTab === 'RECOMMENDATIONS'
+                  ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${activeSubTab === 'RECOMMENDATIONS' ? 'text-pink-300 animate-pulse' : 'text-purple-400'}`} />
+              <span>Playlist IA</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSubTab('WISHLIST')}
+              className={`flex-1 min-w-[90px] py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                activeSubTab === 'WISHLIST'
+                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Heart className={`w-3.5 h-3.5 ${activeSubTab === 'WISHLIST' ? 'fill-pink-300 text-pink-300' : 'text-pink-400'}`} />
+              <span>Desejos</span>
+              {wishlist.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-gradient-to-r from-pink-500 to-rose-500 text-white text-[9px] font-black">
+                  {wishlist.length}
+                </span>
+              )}
             </button>
 
             <button
@@ -737,6 +1045,40 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
             ))}
           </div>
 
+          {/* Gemini AI Recommendation Trigger Banner */}
+          <div className="rounded-2xl bg-gradient-to-r from-purple-950/70 via-[#13112c] to-[#0c1326] border border-purple-500/25 p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white flex-shrink-0 shadow-md shadow-purple-600/30">
+                <Sparkles className="w-5 h-5 animate-pulse text-pink-200" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                  <span>Playlist Recomendada por IA (Gemini)</span>
+                  <span className="px-2 py-0.2 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30 text-[9px] font-black uppercase">
+                    IA
+                  </span>
+                </h4>
+                <p className="text-[11px] text-slate-300">
+                  {selectedGenre && selectedGenre !== 'Todos'
+                    ? `Quer recomendações de ${selectedGenre}? O Gemini seleciona os hinos perfeitos com tons confortáveis e dicas de palco!`
+                    : 'Deixe o Gemini sugerir uma playlist personalizada com os maiores sucessos do seu gênero musical favorito!'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setActiveSubTab('RECOMMENDATIONS')}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-xs transition flex items-center justify-center gap-2 shadow-md shadow-purple-600/25 active:scale-95 whitespace-nowrap"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-pink-300" />
+              <span>
+                {selectedGenre && selectedGenre !== 'Todos'
+                  ? `Sugerir Playlist de ${selectedGenre}`
+                  : 'Gerar Playlist com IA'}
+              </span>
+            </button>
+          </div>
+
           {/* Songs List */}
           <div className="space-y-3">
             {isLoadingCatalog ? (
@@ -792,20 +1134,348 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => {
-                      setSelectedMusic(m);
-                      setSelectedVersion(m.versions[0]);
-                    }}
-                    className="flex-shrink-0 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-xs shadow-md shadow-purple-600/25 transition-all flex items-center gap-1.5 active:scale-95"
-                  >
-                    <Mic2 className="w-3.5 h-3.5" />
-                    <span>Cantar</span>
-                  </button>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {/* Botão Rápido de Lista de Desejos */}
+                    {(() => {
+                      const isWishlisted = wishlist.some((w) => w.musicId === m.id);
+                      return (
+                        <button
+                          type="button"
+                          id={`btn-wishlist-toggle-${m.id}`}
+                          onClick={() => handleToggleWishlist(m)}
+                          className={`p-2.5 rounded-xl border transition-all active:scale-90 flex items-center justify-center ${
+                            isWishlisted
+                              ? 'bg-pink-500/20 border-pink-500/50 text-pink-400 shadow-md shadow-pink-500/20'
+                              : 'bg-white/[0.04] hover:bg-pink-500/10 border-white/[0.08] hover:border-pink-500/30 text-slate-400 hover:text-pink-300'
+                          }`}
+                          title={isWishlisted ? 'Remover da Lista de Desejos' : 'Salvar na Lista de Desejos (Quero Cantar)'}
+                        >
+                          <Heart className={`w-4 h-4 transition-transform ${isWishlisted ? 'fill-pink-500 text-pink-500 scale-110' : ''}`} />
+                        </button>
+                      );
+                    })()}
+
+                    <button
+                      type="button"
+                      id={`btn-preview-${m.id}`}
+                      onClick={() => {
+                        setSelectedMusic(m);
+                        setSelectedVersion(m.versions[0]);
+                        setIsPreviewPlaying(true);
+                      }}
+                      className="p-2.5 rounded-xl border border-white/[0.08] hover:border-purple-500/30 bg-white/[0.04] hover:bg-purple-500/10 text-slate-400 hover:text-purple-300 transition-all flex items-center justify-center active:scale-90"
+                      title="Ouvir prévia no seu aparelho antes de mandar para a TV"
+                    >
+                      <Headphones className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      id={`btn-sing-${m.id}`}
+                      onClick={() => {
+                        setSelectedMusic(m);
+                        setSelectedVersion(m.versions[0]);
+                        setIsPreviewPlaying(false);
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-xs shadow-md shadow-purple-600/25 transition-all flex items-center gap-1.5 active:scale-95"
+                    >
+                      <Mic2 className="w-3.5 h-3.5" />
+                      <span>Cantar</span>
+                    </button>
+                  </div>
                 </div>
               ))
             )}
           </div>
+        </div>
+      )}
+
+      {/* TAB 1.2: PLAYLIST RECOMENDADA POR IA (GEMINI) */}
+      {activeSubTab === 'RECOMMENDATIONS' && (
+        <RecommendedPlaylistView
+          participant={participant}
+          initialGenre={selectedGenre}
+          catalog={catalog}
+          wishlistIds={new Set(wishlist.map((w) => w.musicId))}
+          onSelectSongToSing={(music, preferredTone) => {
+            setSelectedMusic(music);
+            setSelectedVersion(music.versions[0] || null);
+            setSelectedToneOffset(preferredTone ?? 0);
+          }}
+          onAddToWishlist={(music, preferredTone) => {
+            handleToggleWishlist(music, music.versions[0], preferredTone ?? 0);
+          }}
+          onAddToPlaylist={(music, preferredTone) => {
+            if (music.versions[0]) {
+              setSelectedToneOffset(preferredTone ?? 0);
+              handleAddToPlaylist(music, music.versions[0]);
+            }
+          }}
+          onRequestCustomSong={(prefillTitle, prefillArtist, prefillGenre) => {
+            if (prefillTitle) setCustomTitle(prefillTitle);
+            if (prefillArtist) setCustomArtist(prefillArtist);
+            if (prefillGenre) setCustomStyle('Karaokê');
+            setShowCustomModal(true);
+          }}
+          onBackToCatalog={() => setActiveSubTab('SEARCH')}
+        />
+      )}
+
+      {/* TAB 1.5: LISTA DE DESEJOS (WISHLIST - PRÓXIMAS RODADAS) */}
+      {activeSubTab === 'WISHLIST' && (
+        <div className="space-y-5 animate-in fade-in duration-300">
+          {/* Hero Banner */}
+          <div className="rounded-3xl bg-gradient-to-br from-pink-950/40 via-[#130f24]/90 to-[#0a0d18] border border-pink-500/25 p-5 sm:p-7 relative overflow-hidden shadow-2xl">
+            <div className="absolute top-0 right-0 -mr-12 -mt-12 w-64 h-64 bg-pink-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pink-500/15 border border-pink-500/30 text-pink-300 text-[11px] font-bold tracking-wide uppercase mb-3">
+                  <Heart className="w-3.5 h-3.5 fill-pink-400 text-pink-400" />
+                  <span>Lista de Desejos • Próximas Rodadas</span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-display font-black text-white tracking-tight mb-2">
+                  Músicas que você quer cantar hoje à noite
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-300/90 max-w-xl leading-relaxed">
+                  Guarde suas preferências vocais com antecedência. Quando o microfone estiver livre para a sua próxima rodada, mande direto para a fila em apenas 1 toque com o tom já ajustado!
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5 flex-wrap flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab('SEARCH')}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 active:scale-95 border border-white/10"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Explorar Catálogo</span>
+                </button>
+                {wishlist.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearWishlist}
+                    className="px-3.5 py-2.5 rounded-xl bg-white/[0.04] hover:bg-rose-500/10 border border-white/10 hover:border-rose-500/30 text-slate-400 hover:text-rose-300 font-medium text-xs transition-all flex items-center gap-1.5"
+                    title="Limpar todas as músicas salvas na lista de desejos"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Limpar Lista</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Stats Pill */}
+            {wishlist.length > 0 && (
+              <div className="mt-5 pt-4 border-t border-white/[0.08] flex items-center gap-4 text-xs text-slate-400 flex-wrap">
+                <span className="flex items-center gap-1.5 font-medium text-pink-300">
+                  <Heart className="w-3.5 h-3.5 fill-pink-400" />
+                  <strong>{wishlist.length}</strong> {wishlist.length === 1 ? 'música salva' : 'músicas salvas'}
+                </span>
+                <span>•</span>
+                <span>Tom vocal ajustável por semitom (-3 a +3)</span>
+                <span>•</span>
+                <span>Sincronizado na nuvem e no seu aparelho</span>
+              </div>
+            )}
+          </div>
+
+          {/* Search & Genre Filters for Wishlist */}
+          {wishlist.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1 group">
+                  <Search className="w-4 h-4 text-pink-400 absolute left-4 top-1/2 -translate-y-1/2 transition-colors" />
+                  <input
+                    type="text"
+                    value={wishlistSearchQuery}
+                    onChange={(e) => setWishlistSearchQuery(e.target.value)}
+                    placeholder="Filtrar por nome de música ou artista na sua lista..."
+                    className="w-full pl-11 pr-10 py-3 rounded-2xl bg-[#090d18] border border-white/10 text-white placeholder-slate-500 text-xs sm:text-sm focus:outline-none focus:border-pink-500 focus:ring-2 focus:ring-pink-500/30 transition shadow-inner"
+                  />
+                  {wishlistSearchQuery && (
+                    <button
+                      onClick={() => setWishlistSearchQuery('')}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Genre chips in wishlist */}
+                {(() => {
+                  const uniqueGenres = ['Todos', ...Array.from(new Set(wishlist.map((w) => w.genre).filter(Boolean)))];
+                  if (uniqueGenres.length <= 2) return null;
+                  return (
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                      {uniqueGenres.map((genre) => (
+                        <button
+                          key={genre}
+                          onClick={() => setWishlistGenreFilter(genre)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                            wishlistGenreFilter === genre
+                              ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-md'
+                              : 'bg-[#0e1322] text-slate-400 border border-white/[0.08] hover:text-slate-200'
+                          }`}
+                        >
+                          {genre}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Wishlist Items List */}
+          {wishlist.length === 0 ? (
+            <div className="p-10 sm:p-14 text-center rounded-3xl bg-[#0e1322]/80 border border-pink-500/20 text-slate-400 space-y-4">
+              <div className="w-16 h-16 rounded-3xl bg-pink-500/10 border border-pink-500/30 text-pink-400 flex items-center justify-center mx-auto shadow-xl shadow-pink-500/10">
+                <Heart className="w-8 h-8 fill-pink-500/30" />
+              </div>
+              <div className="space-y-1.5 max-w-md mx-auto">
+                <h4 className="text-white font-bold text-base sm:text-lg">Sua Lista de Desejos está vazia</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Ao navegar pelo catálogo de músicas, clique no ícone de coração <strong>♡</strong> para salvar as faixas que você planeja cantar durante a noite.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('SEARCH')}
+                className="px-5 py-3 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-xs shadow-xl shadow-purple-600/25 transition inline-flex items-center gap-2 active:scale-95"
+              >
+                <Search className="w-4 h-4" />
+                <span>Explorar Catálogo Musical</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {(() => {
+                const filtered = wishlist.filter((item) => {
+                  const matchSearch =
+                    !wishlistSearchQuery.trim() ||
+                    item.musicTitle.toLowerCase().includes(wishlistSearchQuery.toLowerCase()) ||
+                    item.musicArtist.toLowerCase().includes(wishlistSearchQuery.toLowerCase());
+                  const matchGenre = wishlistGenreFilter === 'Todos' || item.genre === wishlistGenreFilter;
+                  return matchSearch && matchGenre;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="p-8 text-center rounded-2xl bg-[#0e1322] border border-white/10 text-slate-400 text-xs">
+                      Nenhuma música na lista de desejos corresponde ao filtro pesquisado.
+                    </div>
+                  );
+                }
+
+                return filtered.map((item) => {
+                  const tone = item.preferredToneOffset !== undefined ? item.preferredToneOffset : 0;
+                  return (
+                    <div
+                      key={item.id}
+                      className="group rounded-2xl bg-[#0e1324]/85 hover:bg-[#141b32] border border-white/[0.08] hover:border-pink-500/40 p-3.5 sm:p-4 transition-all duration-200 shadow-md hover:shadow-xl hover:shadow-pink-950/20"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
+                        {/* Info & Cover */}
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="relative w-14 sm:w-16 h-14 sm:h-16 rounded-2xl overflow-hidden bg-slate-900 flex-shrink-0 shadow-lg ring-1 ring-white/10">
+                            <img
+                              src={item.coverUrl || 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=160&q=80'}
+                              alt={item.musicTitle}
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                            />
+                            <div className="absolute top-1 left-1 p-1 rounded-full bg-black/60 backdrop-blur-sm">
+                              <Heart className="w-2.5 h-2.5 fill-pink-500 text-pink-500" />
+                            </div>
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <h4 className="text-sm sm:text-base font-display font-bold text-white truncate group-hover:text-pink-200 transition-colors">
+                              {item.musicTitle}
+                            </h4>
+                            <p className="text-xs text-slate-400 truncate mt-0.5">{item.musicArtist}</p>
+
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] bg-pink-500/10 text-pink-300 font-semibold border border-pink-500/20">
+                                {item.genre}
+                              </span>
+                              {item.preferredVersionStyle && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/[0.06] text-slate-300 font-medium">
+                                  {item.preferredVersionStyle === 'acustico'
+                                    ? 'Acústico'
+                                    : item.preferredVersionStyle === 'live'
+                                    ? 'Ao Vivo'
+                                    : 'Karaokê Oficial'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Tone Stepper & Actions */}
+                        <div className="flex items-center justify-between sm:justify-end gap-3 flex-wrap sm:flex-nowrap border-t sm:border-t-0 pt-2.5 sm:pt-0 border-white/[0.06]">
+                          {/* Stepper de Tom Vocal */}
+                          <div
+                            className="flex items-center gap-1.5 bg-[#080c16] px-2.5 py-1.5 rounded-xl border border-white/[0.08]"
+                            title="Ajuste o tom vocal para esta música desejada"
+                          >
+                            <span className="text-[10px] font-bold text-slate-400 mr-1 hidden sm:inline">Tom:</span>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateWishlistTone(item.id, tone - 1)}
+                              disabled={tone <= -3}
+                              className="w-6 h-6 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] disabled:opacity-30 text-white font-bold text-xs flex items-center justify-center transition active:scale-95"
+                            >
+                              -
+                            </button>
+                            <span
+                              className={`text-xs font-mono font-bold px-1.5 min-w-[32px] text-center ${
+                                tone === 0
+                                  ? 'text-emerald-400'
+                                  : tone > 0
+                                  ? 'text-amber-400'
+                                  : 'text-cyan-400'
+                              }`}
+                            >
+                              {tone > 0 ? `+${tone}` : tone}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateWishlistTone(item.id, tone + 1)}
+                              disabled={tone >= 3}
+                              className="w-6 h-6 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] disabled:opacity-30 text-white font-bold text-xs flex items-center justify-center transition active:scale-95"
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          {/* Botão Cantar Nesta Rodada */}
+                          <button
+                            type="button"
+                            onClick={() => handleSingFromWishlist(item)}
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-pink-600/25 transition-all flex items-center gap-1.5 active:scale-95 flex-shrink-0"
+                          >
+                            <Mic2 className="w-3.5 h-3.5" />
+                            <span>Cantar Agora</span>
+                          </button>
+
+                          {/* Botão Remover */}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFromWishlist(item.id, item.musicTitle)}
+                            className="p-2 rounded-xl bg-white/[0.04] hover:bg-rose-500/15 text-slate-400 hover:text-rose-400 border border-white/[0.06] hover:border-rose-500/30 transition active:scale-95"
+                            title="Remover da lista de desejos"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
         </div>
       )}
 
@@ -1089,8 +1759,8 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
 
       {/* CONFIRM VERSION & VOCAL TUNER MODAL (Section 21, 22, 23) */}
       {selectedMusic && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
-          <div className="w-full max-w-lg rounded-3xl bg-[#0d1222] border border-white/15 p-6 sm:p-7 shadow-2xl text-slate-100 relative overflow-hidden ring-1 ring-white/10">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4 backdrop-blur-md">
+          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-3xl bg-[#0d1222] border border-white/15 p-5 sm:p-7 shadow-2xl text-slate-100 relative ring-1 ring-white/10">
             {/* Top ambient lights */}
             <div className="absolute -top-16 -right-16 w-44 h-44 bg-purple-600/20 rounded-full blur-2xl pointer-events-none" />
             <div className="absolute -bottom-16 -left-16 w-44 h-44 bg-pink-600/15 rounded-full blur-2xl pointer-events-none" />
@@ -1151,6 +1821,74 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* In-App Device Audio/Video Preview (Ouvir Prévia no Aparelho) */}
+            <div className="p-4 rounded-2xl bg-[#080c16] border border-purple-500/30 space-y-3 mb-5 shadow-inner relative z-10">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-600 to-pink-600 flex items-center justify-center text-white shadow-md shadow-purple-600/30 flex-shrink-0">
+                    <Headphones className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black text-white uppercase tracking-wider block">Prévia no seu Aparelho</span>
+                    <span className="text-[10px] text-slate-400">Ouça nos fones ou alto-falante do celular</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPreviewPlaying((prev) => !prev)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-md active:scale-95 ${
+                    isPreviewPlaying
+                      ? 'bg-rose-600/30 text-rose-300 border border-rose-500/40 hover:bg-rose-600/40'
+                      : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-purple-600/20'
+                  }`}
+                >
+                  {isPreviewPlaying ? (
+                    <>
+                      <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Pausar Prévia</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Ouvir Prévia</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Escute a introdução e o tom antes de confirmar para a TV. Isso evita escolher a versão errada ou desistir quando já estiver no palco!
+              </p>
+
+              {isPreviewPlaying && selectedVersion && (
+                <div className="pt-1 space-y-2 animate-in fade-in duration-200">
+                  <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black border border-purple-500/40 shadow-xl relative ring-1 ring-white/10">
+                    <iframe
+                      src={`https://www.youtube.com/embed/${selectedVersion.youtubeVideoId}?autoplay=1&playsinline=1&modestbranding=1&rel=0`}
+                      title={`Prévia: ${selectedMusic.title}`}
+                      className="w-full h-full border-0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 px-1">
+                    <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      Tocando apenas no seu celular (o telão não é afetado)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsPreviewPlaying(false)}
+                      className="text-slate-400 hover:text-white underline text-[10px]"
+                    >
+                      Fechar prévia
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* PRD Section 23: Vocal Pitch Tuner / Transposição de Semitons */}
@@ -1245,9 +1983,32 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
                 <span>Cantar Agora na Fila da TV</span>
               </button>
 
+              {(() => {
+                const isWishlisted = wishlist.some((w) => w.musicId === selectedMusic.id);
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedVersion) {
+                        handleToggleWishlist(selectedMusic, selectedVersion, selectedToneOffset);
+                      }
+                    }}
+                    className={`py-4 px-4 rounded-2xl font-bold text-xs border transition-all flex items-center justify-center gap-2 active:scale-95 ${
+                      isWishlisted
+                        ? 'bg-pink-500/20 border-pink-500/50 text-pink-300 shadow-md shadow-pink-500/15'
+                        : 'bg-white/[0.04] hover:bg-pink-500/10 border-white/[0.12] hover:border-pink-500/30 text-slate-200'
+                    }`}
+                    title="Guardar na lista de desejos com este tom para as próximas rodadas"
+                  >
+                    <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-pink-400 text-pink-400' : 'text-pink-400'}`} />
+                    <span>{isWishlisted ? 'Na Lista de Desejos' : 'Salvar nos Desejos'}</span>
+                  </button>
+                );
+              })()}
+
               <button
                 onClick={() => selectedVersion && handleAddToPlaylist(selectedMusic, selectedVersion)}
-                className="py-4 px-5 rounded-2xl bg-[#090d18] hover:bg-white/[0.08] text-slate-200 font-bold text-xs border border-white/[0.12] transition-all flex items-center justify-center gap-2"
+                className="py-4 px-4 rounded-2xl bg-[#090d18] hover:bg-white/[0.08] text-slate-200 font-bold text-xs border border-white/[0.12] transition-all flex items-center justify-center gap-2"
               >
                 <Plus className="w-4 h-4" />
                 <span>Salvar Playlist</span>
@@ -1255,7 +2016,10 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({ sessionCode = 
             </div>
 
             <button
-              onClick={() => setSelectedMusic(null)}
+              onClick={() => {
+                setSelectedMusic(null);
+                setIsPreviewPlaying(false);
+              }}
               className="mt-4 w-full py-2.5 text-xs font-semibold text-slate-400 hover:text-white transition"
             >
               Cancelar e Voltar ao Catálogo
