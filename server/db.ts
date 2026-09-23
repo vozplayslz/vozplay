@@ -21,8 +21,93 @@ import {
   SessionMetrics,
   SessionNotification,
   AuditLog,
-  MusicVersionStyle
+  MusicVersionStyle,
+  CallingParticipantState,
+  SongLyrics,
+  EstablishmentBranding,
+  EstablishmentBrandingDTO
 } from '../src/types.js';
+
+import {
+  DEFAULT_BRANDING,
+  evaluateBrandingAccessibility,
+  sanitizeText,
+  normalizeHexColor
+} from './brandingUtils.js';
+
+// Acervo de Letras Oficiais Autorizadas (Abstração Conforme Diretriz do Projeto)
+const AUTHORIZED_LYRICS: Record<string, SongLyrics> = {
+  'm-1': {
+    musicId: 'm-1',
+    title: 'Evidências',
+    artist: 'Chitãozinho & Xororó',
+    hasLyrics: true,
+    source: 'Acervo Oficial VozPlay (Letra Autorizada)',
+    lines: [
+      { timeSec: 0, text: '♪ (Introdução instrumental)', section: 'intro' },
+      { timeSec: 15, text: 'Quando eu digo que deixei de te amar', section: 'verse' },
+      { timeSec: 19, text: 'É porque eu te amo', section: 'verse' },
+      { timeSec: 23, text: 'Quando eu digo que não quero mais você', section: 'verse' },
+      { timeSec: 27, text: 'É porque eu te quero', section: 'verse' },
+      { timeSec: 31, text: 'Eu tenho medo de te dar meu coração', section: 'verse' },
+      { timeSec: 35, text: 'E confessar que eu estou em tuas mãos', section: 'verse' },
+      { timeSec: 39, text: 'Mas não posso aceitar o que a vida me propôs', section: 'verse' },
+      { timeSec: 43, text: 'Se o meu pensamento é todo seu, o meu amor é todo seu', section: 'verse' },
+      { timeSec: 49, text: 'E nessa loucura de dizer que não te quero', section: 'chorus' },
+      { timeSec: 54, text: 'Vou negando as aparências, disfarçando as evidências', section: 'chorus' },
+      { timeSec: 61, text: 'Mas pra que viver fingindo se eu não posso me enganar?', section: 'chorus' },
+      { timeSec: 68, text: 'Eu sei que te amo!', section: 'chorus' },
+      { timeSec: 72, text: 'Chega de mentiras, de negar o meu desejo', section: 'chorus' },
+      { timeSec: 78, text: 'Eu te quero mais que tudo, eu preciso do seu beijo', section: 'chorus' },
+      { timeSec: 85, text: 'Eu entrego a minha vida pra você fazer o que quiser de mim', section: 'chorus' },
+      { timeSec: 92, text: 'Só quero ouvir você dizer que sim!', section: 'chorus' },
+      { timeSec: 99, text: 'Diz que é verdade, que tem saudade', section: 'chorus' },
+      { timeSec: 104, text: 'Que ainda você pensa muito em mim!', section: 'chorus' },
+      { timeSec: 109, text: 'Diz que é verdade, que tem saudade', section: 'chorus' },
+      { timeSec: 114, text: 'Que ainda você quer viver pra mim!', section: 'chorus' }
+    ]
+  },
+  'm-2': {
+    musicId: 'm-2',
+    title: 'Cheia de Manias',
+    artist: 'Raça Negra',
+    hasLyrics: true,
+    source: 'Acervo Oficial VozPlay (Letra Autorizada)',
+    lines: [
+      { timeSec: 0, text: '♪ (Introdução de cavaquinho e tantã)', section: 'intro' },
+      { timeSec: 12, text: 'Cheia de manias', section: 'verse' },
+      { timeSec: 15, text: 'Toda dengosa', section: 'verse' },
+      { timeSec: 17, text: 'Menina bonita, sabe que é gostosa', section: 'verse' },
+      { timeSec: 22, text: 'Com esse seu jeito faz o que quer de mim', section: 'verse' },
+      { timeSec: 28, text: 'Domina o meu coração', section: 'verse' },
+      { timeSec: 32, text: 'Eu fico encabulado, você me põe de lado', section: 'verse' },
+      { timeSec: 37, text: 'Mas no fundo eu sei que você quer paixão', section: 'verse' },
+      { timeSec: 42, text: 'Então me ajude a segurar essa barra que é gostar de você!', section: 'chorus' },
+      { timeSec: 50, text: 'Então me ajude a segurar essa barra que é gostar de você, êh!', section: 'chorus' },
+      { timeSec: 58, text: 'Dididididê, dididididê-ê-ê...', section: 'chorus' }
+    ]
+  },
+  'm-9': {
+    musicId: 'm-9',
+    title: 'Não Quero Dinheiro (Só Quero Amar)',
+    artist: 'Tim Maia',
+    hasLyrics: true,
+    source: 'Acervo Oficial VozPlay (Letra Autorizada)',
+    lines: [
+      { timeSec: 0, text: '♪ (Groove de baixo e metais)', section: 'intro' },
+      { timeSec: 10, text: 'Vou pedir ao garçom', section: 'verse' },
+      { timeSec: 13, text: 'Uma cerveja bem gelada', section: 'verse' },
+      { timeSec: 16, text: 'Pra comemorar que você voltou pra mim', section: 'verse' },
+      { timeSec: 22, text: 'A semana inteira fiquei esperando', section: 'verse' },
+      { timeSec: 26, text: 'Pra te ver sorrindo, pra te ver cantando', section: 'verse' },
+      { timeSec: 30, text: 'Quando a gente ama, não pensa em dinheiro', section: 'chorus' },
+      { timeSec: 34, text: 'Só se quer amar, se quer amar, se quer amar!', section: 'chorus' },
+      { timeSec: 38, text: 'De jeito maneira não quero dinheiro', section: 'chorus' },
+      { timeSec: 42, text: 'Quero amor sincero, isto é que eu espero!', section: 'chorus' },
+      { timeSec: 46, text: 'Grito ao mundo inteiro: não quero dinheiro, eu só quero amar!', section: 'chorus' }
+    ]
+  }
+};
 
 // Seed Music Catalog with validated YouTube Karaoke & Playback IDs
 const INITIAL_CATALOG: Music[] = [
@@ -477,6 +562,7 @@ class VozPlayDB {
   public playlists: Map<string, PlaylistItem[]> = new Map(); // participantId -> items
   public wishlists: Map<string, WishlistItem[]> = new Map(); // participantId -> WishlistItem[]
   public queue: QueueItem[] = [];
+  public callingState: CallingParticipantState | null = null;
   public devices: Map<string, DeviceInfo> = new Map(); // deviceId -> DeviceInfo (Section 36 & 37)
   public playbackState: {
     status: PlaybackStatus;
@@ -502,11 +588,20 @@ class VozPlayDB {
   public lastTvHeartbeat: number = Date.now();
   public sessionAlert: { message: string; level: string; active: boolean; timestamp: string } | null = null;
   public presenceFailedAttempts: Map<string, { count: number; lastAttempt: number }> = new Map();
-
+  public brandings: Map<string, EstablishmentBranding> = new Map();
 
   constructor() {
     const now = new Date();
     const endTime = new Date(now.getTime() + 3 * 60 * 60 * 1000); // 3 hours from now
+
+    // Inicializa branding padrão do estabelecimento
+    const defaultEstBranding: EstablishmentBranding = {
+      id: 'brand-est-slz',
+      establishmentId: 'est-slz-lounge',
+      ...DEFAULT_BRANDING,
+      updatedAt: now.toISOString()
+    };
+    this.brandings.set('est-slz-lounge', defaultEstBranding);
 
     this.session = {
       id: 'sess-slz-01',
@@ -521,7 +616,8 @@ class VozPlayDB {
       activeControllerName: 'Carlos (Operador de Som)',
       supervisorId: 'sup-renata',
       supervisorName: 'Renata (Gerente)',
-      createdAt: now.toISOString()
+      createdAt: now.toISOString(),
+      branding: this.getBrandingDTO('est-slz-lounge')
     };
 
     this.presenceCode = this.generateNewPresenceCode();
@@ -767,6 +863,7 @@ class VozPlayDB {
       youtubeVideoId: version.youtubeVideoId,
       toneOffset: Math.max(-3, Math.min(3, toneOffset || 0)),
       status: 'QUEUED',
+      missedTurnCount: 0,
       queuedAt: new Date().toISOString(),
       orderIndex: this.queue.length
     };
@@ -812,10 +909,303 @@ class VozPlayDB {
   public reindexQueue() {
     let activeIdx = 0;
     for (const item of this.queue) {
-      if (item.status === 'QUEUED' || item.status === 'PLAYING') {
+      if (item.status === 'QUEUED' || item.status === 'CALLED' || item.status === 'PLAYING') {
         item.orderIndex = activeIdx++;
       }
     }
+  }
+
+  /**
+   * Obtém a letra da música do acervo oficial (abstração compatível com a diretriz do projeto)
+   */
+  public getSongLyrics(musicId: string): SongLyrics {
+    if (AUTHORIZED_LYRICS[musicId]) {
+      return AUTHORIZED_LYRICS[musicId];
+    }
+    const found = this.catalog.find(m => m.id === musicId);
+    return {
+      musicId,
+      title: found?.title || 'Música',
+      artist: found?.artist || 'Artista Desconhecido',
+      hasLyrics: false,
+      lines: []
+    };
+  }
+
+  /**
+   * PRD & User Spec: CHAMADA DO PARTICIPANTE (30 Segundos Autoritativos no Servidor)
+   * Dispara a transição para CALLING_PARTICIPANT na TV, no celular e no operador.
+   */
+  public callNextParticipant(actorRole = 'CONTROLLER', actorName = 'Controlador'): CallingParticipantState | null {
+    if (this.session.status !== 'ACTIVE') {
+      return null;
+    }
+
+    // Se já está reproduzindo uma música, não sobrepõe
+    if (this.playbackState.status === 'PLAYING') {
+      return null;
+    }
+
+    // Se já existe uma chamada ativa, recalcula e retorna
+    if (this.callingState && this.playbackState.status === 'CALLING_PARTICIPANT') {
+      const remainingSec = Math.max(0, Math.ceil((new Date(this.callingState.expiresAt).getTime() - Date.now()) / 1000));
+      this.callingState.remainingSeconds = remainingSec;
+      return this.callingState;
+    }
+
+    // Localizar o próximo item elegível na fila com status QUEUED
+    const nextItem = this.queue.find(q => q.status === 'QUEUED');
+    if (!nextItem) {
+      return null;
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 30 * 1000); // 30 segundos exatos
+
+    nextItem.status = 'CALLED';
+    nextItem.calledAt = now.toISOString();
+    nextItem.callExpiresAt = expiresAt.toISOString();
+    if (nextItem.missedTurnCount === undefined) {
+      nextItem.missedTurnCount = 0;
+    }
+
+    this.callingState = {
+      queueItemId: nextItem.id,
+      participantId: nextItem.participantId,
+      participantDisplayName: nextItem.participantDisplayName,
+      partnerParticipantId: nextItem.partnerParticipantId,
+      partnerDisplayName: nextItem.partnerDisplayName,
+      isDuet: nextItem.isDuet,
+      musicId: nextItem.musicId,
+      musicTitle: nextItem.musicTitle,
+      musicArtist: nextItem.musicArtist,
+      versionId: nextItem.versionId,
+      versionStyle: nextItem.versionStyle,
+      youtubeVideoId: nextItem.youtubeVideoId,
+      toneOffset: nextItem.toneOffset,
+      calledAt: nextItem.calledAt,
+      expiresAt: nextItem.callExpiresAt,
+      remainingSeconds: 30,
+      missedTurnCount: nextItem.missedTurnCount
+    };
+
+    this.playbackState.status = 'CALLING_PARTICIPANT';
+    this.playbackState.currentQueueItemId = nextItem.id;
+    this.playbackState.updatedAt = now.toISOString();
+
+    this.logAudit(
+      actorRole as any,
+      actorName,
+      'TURN_CALLED',
+      `Chamada do participante: ${nextItem.participantDisplayName} para cantar "${nextItem.musicTitle}". Janela autoritativa de 30s iniciada.`
+    );
+
+    return this.callingState;
+  }
+
+  /**
+   * PRD & User Spec: COMEÇAR A CANTAR (Início da Apresentação pelo Participante)
+   * Validações estritas de segurança (Sessão ativa, Participante correto, Janela de 30s, etc.)
+   */
+  public startTurn(
+    participantId: string,
+    queueItemId?: string
+  ): { success: boolean; error?: string; item?: QueueItem } {
+    // Validação 1: Sessão ativa
+    if (this.session.status !== 'ACTIVE') {
+      return { success: false, error: 'A sessão não está ativa.' };
+    }
+
+    // Validação 2: Estado de chamada presente
+    if (!this.callingState || this.playbackState.status !== 'CALLING_PARTICIPANT') {
+      return { success: false, error: 'Nenhuma chamada de participante ativa no momento.' };
+    }
+
+    // Validação 3: Validação do participante (titular ou parceiro de dueto)
+    const isCaller = this.callingState.participantId === participantId;
+    const isPartner = Boolean(this.callingState.isDuet && this.callingState.partnerParticipantId === participantId);
+    if (!isCaller && !isPartner) {
+      return { success: false, error: 'Você não é o participante chamado para esta apresentação.' };
+    }
+
+    // Validação 4: Validação do item de fila se especificado
+    if (queueItemId && this.callingState.queueItemId !== queueItemId) {
+      return { success: false, error: 'Identificador de música incompatível com a chamada atual.' };
+    }
+
+    // Validação 5: Validação da janela de tempo (30 segundos com tolerância de 2 segundos para latência)
+    const expiresAtMs = new Date(this.callingState.expiresAt).getTime();
+    if (Date.now() > expiresAtMs + 2000) {
+      return { success: false, error: 'A janela de 30 segundos para iniciar expirou.' };
+    }
+
+    // Validação 6: Item ainda na fila e com status CALLED
+    const queueItem = this.queue.find(q => q.id === this.callingState?.queueItemId);
+    if (!queueItem || queueItem.status !== 'CALLED') {
+      return { success: false, error: 'Música não encontrada ou não elegível para início imediato.' };
+    }
+
+    // Validação 7: Nenhuma outra música atualmente em reprodução
+    const currentPlaying = this.queue.find(q => q.status === 'PLAYING' && q.id !== queueItem.id);
+    if (currentPlaying) {
+      return { success: false, error: 'Outra apresentação já está em andamento.' };
+    }
+
+    // Transição bem-sucedida para PLAYING
+    const nowIso = new Date().toISOString();
+    queueItem.status = 'PLAYING';
+    queueItem.startedAt = nowIso;
+    queueItem.missedTurnCount = 0; // Participante compareceu
+
+    this.callingState = null;
+    this.playbackState.status = 'PLAYING';
+    this.playbackState.currentQueueItemId = queueItem.id;
+    this.playbackState.currentTimeSec = 0;
+    this.playbackState.updatedAt = nowIso;
+
+    this.logAudit(
+      'PARTICIPANT',
+      queueItem.participantDisplayName,
+      'TURN_STARTED',
+      `Apresentação iniciada dentro do prazo ("Começar a Cantar"): ${queueItem.musicTitle}`
+    );
+
+    return { success: true, item: queueItem };
+  }
+
+  /**
+   * PRD & User Spec: VERIFICAÇÃO AUTORITATIVA DE TIMEOUT (Regras de 1ª e 2ª Perda da Vez)
+   */
+  public checkCallingTimeout(): {
+    expired: boolean;
+    item?: QueueItem;
+    missedTurnCount?: number;
+    movedToBack?: boolean;
+  } | null {
+    if (!this.callingState || this.playbackState.status !== 'CALLING_PARTICIPANT') {
+      return null;
+    }
+
+    const now = Date.now();
+    const expiresAtMs = new Date(this.callingState.expiresAt).getTime();
+    const remainingSeconds = Math.max(0, Math.ceil((expiresAtMs - now) / 1000));
+    this.callingState.remainingSeconds = remainingSeconds;
+
+    if (now < expiresAtMs) {
+      return null; // Ainda dentro do prazo de 30 segundos
+    }
+
+    // TEMPO ESGOTADO (30 segundos expirados sem início do participante)
+    const queueItemId = this.callingState.queueItemId;
+    const item = this.queue.find(q => q.id === queueItemId);
+
+    if (!item) {
+      this.callingState = null;
+      this.playbackState.status = 'IDLE';
+      this.playbackState.currentQueueItemId = null;
+      return null;
+    }
+
+    const currentMisses = item.missedTurnCount || 0;
+
+    if (currentMisses === 0) {
+      // 1ª OCORRÊNCIA:
+      // O participante não perde a vaga na fila, permanece elegível como próximo
+      // Não marca como COMPLETED. Não contabiliza em totalSongsPlayed.
+      item.missedTurnCount = 1;
+      item.status = 'QUEUED';
+      item.calledAt = undefined;
+      item.callExpiresAt = undefined;
+
+      this.callingState = null;
+      this.playbackState.status = 'IDLE';
+      this.playbackState.currentQueueItemId = null;
+      this.playbackState.updatedAt = new Date().toISOString();
+
+      this.logAudit(
+        'SYSTEM',
+        'TurnManager',
+        'TURN_MISSED',
+        `Primeira perda de vez: ${item.participantDisplayName} não iniciou a música "${item.musicTitle}" em 30s. Mantido na fila como próximo elegível.`
+      );
+
+      return {
+        expired: true,
+        item,
+        missedTurnCount: 1,
+        movedToBack: false
+      };
+    } else {
+      // 2ª OCORRÊNCIA CONSECUTIVA:
+      // Participante chamado novamente e não compareceu.
+      // Move o item para o FINAL da fila rotativa. O participante NÃO perde sua playlist pessoal.
+      const itemIdx = this.queue.findIndex(q => q.id === item.id);
+      if (itemIdx !== -1) {
+        this.queue.splice(itemIdx, 1);
+        this.queue.push(item);
+      }
+
+      item.status = 'QUEUED';
+      item.missedTurnCount = 0; // Reset para os próximos ciclos
+      item.calledAt = undefined;
+      item.callExpiresAt = undefined;
+      this.reindexQueue();
+
+      this.callingState = null;
+      this.playbackState.status = 'IDLE';
+      this.playbackState.currentQueueItemId = null;
+      this.playbackState.updatedAt = new Date().toISOString();
+
+      this.logAudit(
+        'SYSTEM',
+        'TurnManager',
+        'TURN_MISSED_SECOND_TIME',
+        `Segunda perda de vez consecutiva: ${item.participantDisplayName}. Música "${item.musicTitle}" movida para o final da fila.`
+      );
+      this.logAudit(
+        'SYSTEM',
+        'TurnManager',
+        'QUEUE_ITEM_MOVED_TO_BACK',
+        `Item ${item.id} reposicionado ao fim da fila rotativa da sessão.`
+      );
+
+      return {
+        expired: true,
+        item,
+        missedTurnCount: 2,
+        movedToBack: true
+      };
+    }
+  }
+
+  /**
+   * Cancelamento manual da chamada pelo operador ou supervisor
+   */
+  public cancelCall(reason = 'Cancelado pelo operador', actorRole = 'CONTROLLER', actorName = 'Controlador'): boolean {
+    if (!this.callingState || this.playbackState.status !== 'CALLING_PARTICIPANT') {
+      return false;
+    }
+
+    const item = this.queue.find(q => q.id === this.callingState?.queueItemId);
+    if (item && item.status === 'CALLED') {
+      item.status = 'QUEUED';
+      item.calledAt = undefined;
+      item.callExpiresAt = undefined;
+    }
+
+    this.callingState = null;
+    this.playbackState.status = 'IDLE';
+    this.playbackState.currentQueueItemId = null;
+    this.playbackState.updatedAt = new Date().toISOString();
+
+    this.logAudit(
+      actorRole as any,
+      actorName,
+      'CALL_CANCELLED',
+      `Chamada de participante cancelada: ${reason}`
+    );
+
+    return true;
   }
 
   /**
@@ -887,9 +1277,165 @@ class VozPlayDB {
       sessionAlert,
       volume: this.playbackState.volume,
       scheduledEndTime: this.session.scheduledEndTime,
-      qrCodeUrl: `https://vozplay.ai.slz.br/join?s=${this.session.code}`
+      qrCodeUrl: `https://vozplay.ai.slz.br/join?s=${this.session.code}`,
+      callingState: this.callingState
+        ? {
+            queueItemId: this.callingState.queueItemId,
+            participantId: this.callingState.participantId,
+            participantDisplayName: this.callingState.participantDisplayName,
+            partnerParticipantId: this.callingState.partnerParticipantId,
+            partnerDisplayName: this.callingState.partnerDisplayName,
+            isDuet: this.callingState.isDuet,
+            musicId: this.callingState.musicId,
+            musicTitle: this.callingState.musicTitle,
+            musicArtist: this.callingState.musicArtist,
+            versionId: this.callingState.versionId,
+            versionStyle: this.callingState.versionStyle,
+            youtubeVideoId: this.callingState.youtubeVideoId,
+            toneOffset: this.callingState.toneOffset,
+            calledAt: this.callingState.calledAt,
+            expiresAt: this.callingState.expiresAt,
+            remainingSeconds: this.callingState.remainingSeconds,
+            missedTurnCount: this.callingState.missedTurnCount
+          }
+        : null,
+      branding: this.getBrandingDTO(this.session.establishmentId)
     };
 
+  }
+
+  /**
+   * Obtém a Identidade Visual do Estabelecimento (Seção 20 - Resolução via session -> establishment)
+   */
+  public getBranding(establishmentId: string): EstablishmentBranding {
+    let branding = this.brandings.get(establishmentId);
+    if (!branding) {
+      branding = {
+        id: 'brand-' + establishmentId,
+        establishmentId,
+        ...DEFAULT_BRANDING,
+        businessName: this.session.establishmentId === establishmentId ? this.session.establishmentName : DEFAULT_BRANDING.businessName,
+        updatedAt: new Date().toISOString()
+      };
+      this.brandings.set(establishmentId, branding);
+    }
+    return branding;
+  }
+
+  /**
+   * Obtém DTO seguro de Branding para consumo em TV, Participant e Controller
+   */
+  public getBrandingDTO(establishmentId: string): EstablishmentBrandingDTO {
+    const branding = this.getBranding(establishmentId);
+    const { id, ...dto } = branding;
+    return dto;
+  }
+
+  /**
+   * Atualiza a Identidade Visual com sanitização estrita e validação de acessibilidade WCAG
+   */
+  public updateBranding(
+    establishmentId: string,
+    payload: Partial<EstablishmentBranding>
+  ): { success: boolean; branding: EstablishmentBranding; accessibility: any; error?: string } {
+    const current = this.getBranding(establishmentId);
+
+    const businessName = payload.businessName !== undefined
+      ? sanitizeText(payload.businessName, 100)
+      : current.businessName;
+
+    if (!businessName) {
+      return { success: false, branding: current, accessibility: null, error: 'O nome comercial do estabelecimento é obrigatório.' };
+    }
+
+    const slogan = payload.slogan !== undefined ? sanitizeText(payload.slogan, 160) : current.slogan;
+    const primaryColor = payload.primaryColor ? normalizeHexColor(payload.primaryColor, current.primaryColor) : current.primaryColor;
+    const secondaryColor = payload.secondaryColor ? normalizeHexColor(payload.secondaryColor, current.secondaryColor) : current.secondaryColor;
+    const accentColor = payload.accentColor ? normalizeHexColor(payload.accentColor, current.accentColor) : current.accentColor;
+    const backgroundColor = payload.backgroundColor ? normalizeHexColor(payload.backgroundColor, current.backgroundColor) : current.backgroundColor;
+    const surfaceColor = payload.surfaceColor ? normalizeHexColor(payload.surfaceColor, current.surfaceColor) : current.surfaceColor;
+    const textColor = payload.textColor ? normalizeHexColor(payload.textColor, current.textColor) : current.textColor;
+
+    const themeMode = (['DARK', 'LIGHT', 'AUTO'].includes(payload.themeMode as string) ? payload.themeMode : current.themeMode) as any;
+    const tvTheme = (['DARK', 'LIGHT', 'AUTO'].includes(payload.tvTheme as string) ? payload.tvTheme : current.tvTheme) as any;
+    const participantTheme = (['DARK', 'LIGHT', 'AUTO'].includes(payload.participantTheme as string) ? payload.participantTheme : current.participantTheme) as any;
+    const controllerTheme = (['DARK', 'LIGHT', 'AUTO'].includes(payload.controllerTheme as string) ? payload.controllerTheme : current.controllerTheme) as any;
+
+    let logoUrl = current.logoUrl;
+    if (payload.logoUrl !== undefined) {
+      logoUrl = payload.logoUrl ? payload.logoUrl.trim() : '';
+    }
+
+    // Avaliação de acessibilidade WCAG 2.1
+    const accessibility = evaluateBrandingAccessibility(backgroundColor, surfaceColor, textColor, primaryColor);
+
+    const updatedBranding: EstablishmentBranding = {
+      ...current,
+      businessName,
+      slogan,
+      logoUrl,
+      primaryColor,
+      secondaryColor,
+      accentColor,
+      backgroundColor,
+      surfaceColor,
+      textColor,
+      themeMode,
+      tvTheme,
+      participantTheme,
+      controllerTheme,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.brandings.set(establishmentId, updatedBranding);
+
+    // Se este estabelecimento for o da sessão ativa, atualiza o nome do estabelecimento e o branding da sessão
+    if (this.session.establishmentId === establishmentId) {
+      this.session.establishmentName = businessName;
+      this.session.branding = this.getBrandingDTO(establishmentId);
+    }
+
+    this.logAudit(
+      'SUPERVISOR',
+      'Administrador',
+      'BRANDING_UPDATED',
+      `Identidade visual do estabelecimento "${businessName}" atualizada. WCAG Compliant: ${accessibility.compliant}`
+    );
+
+    return {
+      success: true,
+      branding: updatedBranding,
+      accessibility
+    };
+  }
+
+  /**
+   * Restaura o Branding para a Identidade Padrão do VozPlay (Seção 26 do Requisito)
+   */
+  public resetBranding(establishmentId: string): EstablishmentBranding {
+    const resetBranding: EstablishmentBranding = {
+      id: 'brand-' + establishmentId,
+      establishmentId,
+      ...DEFAULT_BRANDING,
+      businessName: 'VozPlay Lounge São Luís',
+      updatedAt: new Date().toISOString()
+    };
+
+    this.brandings.set(establishmentId, resetBranding);
+
+    if (this.session.establishmentId === establishmentId) {
+      this.session.establishmentName = resetBranding.businessName;
+      this.session.branding = this.getBrandingDTO(establishmentId);
+    }
+
+    this.logAudit(
+      'SUPERVISOR',
+      'Administrador',
+      'BRANDING_RESET',
+      `Identidade visual do estabelecimento restaurada para o padrão oficial do VozPlay.`
+    );
+
+    return resetBranding;
   }
 }
 

@@ -20,6 +20,7 @@ import { OfflineBanner } from './components/common/OfflineBanner.js';
 import { useVozPlaySocket } from './hooks/useVozPlaySocket.js';
 import { Session, WSEventType, ActiveTab } from './types.js';
 import { Sparkles } from 'lucide-react';
+import { applyGlobalBrandingTokens } from './utils/brandingTokens.js';
 
 export default function App() {
   const [trackerItemId, setTrackerItemId] = useState<string>(() => {
@@ -72,6 +73,9 @@ export default function App() {
       if (data && data.success) {
         setSession(data.data);
         setTvConnected(data.data.tvConnected);
+        if (data.data.branding) {
+          applyGlobalBrandingTokens(data.data.branding);
+        }
       }
     } catch {
       // Reconexão transitória
@@ -86,7 +90,25 @@ export default function App() {
   const handleSocketEvent = useCallback(
     (event: WSEventType, payload: any) => {
       if (event === 'session.started' || event === 'session.updated' || event === 'session.ended') {
-        if (payload?.session) setSession(payload.session);
+        if (payload?.session) {
+          setSession(payload.session);
+          if (payload.session.branding) {
+            applyGlobalBrandingTokens(payload.session.branding);
+          }
+        }
+      }
+      if (event === 'branding.updated') {
+        if (payload?.branding) {
+          applyGlobalBrandingTokens(payload.branding);
+          setSession(prev => prev ? {
+            ...prev,
+            establishmentName: payload.establishmentName || prev.establishmentName,
+            branding: payload.branding
+          } : prev);
+        }
+        if (payload?.tv) {
+          setLastQueueEvent({ event, tv: payload.tv, _t: Date.now() });
+        }
       }
       if (event === 'tv.connected') {
         setTvConnected(true);
@@ -105,10 +127,15 @@ export default function App() {
         event === 'queue.added' ||
         event === 'queue.updated' ||
         event === 'queue.cancelled' ||
+        event === 'participant.turn_called' ||
         event === 'queue.playing' ||
         event === 'queue.completed' ||
         event === 'player.play' ||
-        event === 'player.state_changed'
+        event === 'player.state_changed' ||
+        event === 'participant.turn_started' ||
+        event === 'participant.turn_missed' ||
+        event === 'participant.turn_missed_again' ||
+        event === 'queue.item_requeued'
       ) {
         setLastQueueEvent({ event, item: payload?.item, tv: payload?.tv, _t: Date.now() });
       }
@@ -188,8 +215,10 @@ export default function App() {
         <main className="flex-1 relative">
           {activeTab === 'PARTICIPANT' && (
             <ParticipantView
+              session={session}
               sessionCode={sessionCode || session?.code || 'SLZ-704'}
               lastSoundboard={lastSoundboard}
+              lastQueueEvent={lastQueueEvent}
               onOpenTracker={(id) => {
                 setTrackerItemId(id);
                 setActiveTab('TRACKER');
@@ -202,6 +231,7 @@ export default function App() {
               session={session}
               tvConnected={tvConnected}
               onStateRefresh={fetchSession}
+              lastQueueEvent={lastQueueEvent}
             />
           )}
 
@@ -210,6 +240,7 @@ export default function App() {
               session={session}
               tvConnected={tvConnected}
               onSessionUpdated={fetchSession}
+              lastQueueEvent={lastQueueEvent}
             />
           )}
 

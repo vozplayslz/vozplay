@@ -12,6 +12,7 @@ import { wsServer } from './wsServer.js';
 import QRCode from 'qrcode';
 import { WishlistItem } from '../src/types.js';
 import { generateRecommendedPlaylist } from './geminiService.js';
+import { sanitizeSvgContent } from './brandingUtils.js';
 
 export const apiRouter = Router();
 
@@ -26,7 +27,8 @@ apiRouter.get('/session', (req, res) => {
       participantsCount: db.participants.size,
       queuedCount: db.queue.filter(q => q.status === 'QUEUED').length,
       tvConnected: db.tvConnected,
-      playbackStatus: db.playbackState.status
+      playbackStatus: db.playbackState.status,
+      callingState: db.callingState
     }
   });
 });
@@ -574,6 +576,8 @@ apiRouter.get('/queue', (req, res) => {
     success: true,
     queue: db.queue,
     playingItem: db.queue.find(q => q.status === 'PLAYING') || null,
+    callingState: db.callingState,
+    playbackState: db.playbackState,
     totalQueued: db.queue.filter(q => q.status === 'QUEUED').length
   });
 });
@@ -828,7 +832,10 @@ apiRouter.get('/queue/share/:queueItemId', (req, res) => {
       status: item.status,
       positionInQueue: item.status === 'PLAYING' ? 'Cantando Agora!' : queuedBefore + 1,
       estimatedWaitMinutes: item.status === 'PLAYING' ? 0 : (queuedBefore + 1) * 4,
-      establishmentName: db.session.establishmentName,
+      establishmentName: db.session.branding?.businessName || db.session.establishmentName,
+      establishmentSlogan: db.session.branding?.slogan,
+      establishmentLogoUrl: db.session.branding?.logoUrl,
+      branding: db.session.branding,
       sessionStatus: db.session.status,
       domain: 'vozplay.ai.slz.br'
     }
@@ -841,6 +848,112 @@ apiRouter.get('/queue/share/:queueItemId', (req, res) => {
 apiRouter.get('/controller/presence-code', (req, res) => {
   const code = db.getPresenceCode();
   res.json({ success: true, presenceCode: code });
+});
+
+// PRD: Chamar Próximo Participante (Janela de 30s)
+apiRouter.post('/controller/call-next', (req, res) => {
+  const call = db.callNextParticipant('CONTROLLER', db.session.activeControllerName || 'Controlador');
+  if (!call) {
+    return res.status(400).json({
+      success: false,
+      error: 'Não há músicas na fila ou a sessão não está ativa.'
+    });
+  }
+
+  wsServer.broadcast('participant.turn_called', { callingState: call });
+  wsServer.broadcastAuthoritativeState();
+  res.json({ success: true, callingState: call });
+});
+
+// PRD: Cancelar Chamada do Participante
+apiRouter.post('/controller/call-cancel', (req, res) => {
+  const { reason } = req.body;
+  const ok = db.cancelCall(reason || 'Cancelado pelo operador', 'CONTROLLER', db.session.activeControllerName || 'Controlador');
+  if (!ok) {
+    return res.status(400).json({ success: false, error: 'Nenhuma chamada ativa para cancelar.' });
+  }
+
+  wsServer.broadcastAuthoritativeState();
+  res.json({ success: true, message: 'Chamada cancelada com sucesso.' });
+});
+
+// PRD & User Spec: Começar a Cantar (Início da Apresentação pelo Participante)
+apiRouter.post('/participant/start-turn', (req, res) => {
+  const { participantId, queueItemId } = req.body;
+  if (!participantId) {
+    return res.status(400).json({ success: false, error: 'Identificador do participante não fornecido.' });
+  }
+
+  const result = db.startTurn(participantId, queueItemId);
+  if (!result.success || !result.item) {
+    return res.status(400).json({ success: false, error: result.error || 'Falha ao iniciar a vez.' });
+  }
+
+  wsServer.broadcast('participant.turn_started', { item: result.item });
+  wsServer.broadcast('player.play', { item: result.item });
+  wsServer.broadcastAuthoritativeState();
+
+  res.json({
+    success: true,
+    message: 'Apresentação iniciada com sucesso! Bem-vindo ao palco.',
+    item: result.item,
+    playbackState: db.playbackState
+  });
+});
+
+apiRouter.post('/participants/start-turn', (req, res) => {
+  const { participantId, queueItemId } = req.body;
+  if (!participantId) {
+    return res.status(400).json({ success: false, error: 'Identificador do participante não fornecido.' });
+  }
+
+  const result = db.startTurn(participantId, queueItemId);
+  if (!result.success || !result.item) {
+    return res.status(400).json({ success: false, error: result.error || 'Falha ao iniciar a vez.' });
+  }
+
+  wsServer.broadcast('participant.turn_started', { item: result.item });
+  wsServer.broadcast('player.play', { item: result.item });
+  wsServer.broadcastAuthoritativeState();
+
+  res.json({
+    success: true,
+    message: 'Apresentação iniciada com sucesso! Bem-vindo ao palco.',
+    item: result.item,
+    playbackState: db.playbackState
+  });
+});
+
+// Status do turno do participante
+apiRouter.get('/participant/turn-status/:participantId', (req, res) => {
+  const pId = req.params.participantId;
+  const isCalled = Boolean(
+    db.callingState &&
+      (db.callingState.participantId === pId ||
+        (db.callingState.isDuet && db.callingState.partnerParticipantId === pId))
+  );
+
+  const currentPlaying = db.queue.find(q => q.status === 'PLAYING');
+  const isPlaying = Boolean(
+    currentPlaying &&
+      (currentPlaying.participantId === pId ||
+        (currentPlaying.isDuet && currentPlaying.partnerParticipantId === pId))
+  );
+
+  res.json({
+    success: true,
+    isCalled,
+    isPlaying,
+    callingState: isCalled ? db.callingState : null,
+    currentPlayingItem: isPlaying ? currentPlaying : null,
+    playbackState: db.playbackState
+  });
+});
+
+// Letras oficiais de músicas do acervo
+apiRouter.get('/lyrics/:musicId', (req, res) => {
+  const lyrics = db.getSongLyrics(req.params.musicId);
+  res.json({ success: true, lyrics });
 });
 
 apiRouter.post('/controller/play', (req, res) => {
@@ -905,14 +1018,18 @@ apiRouter.post('/controller/next', (req, res) => {
     );
   }
 
-  // Advance to next queued item
+  // Se havia chamada ativa, cancela
+  if (db.callingState) {
+    db.cancelCall('Avançado pelo controlador', 'CONTROLLER', db.session.activeControllerName || 'Controlador');
+  }
+
+  // Dispara chamada do próximo participante se houver música na fila
   const nextItem = db.queue.find(q => q.status === 'QUEUED');
   if (nextItem && db.session.status === 'ACTIVE') {
-    nextItem.status = 'PLAYING';
-    nextItem.startedAt = new Date().toISOString();
-    db.playbackState.currentQueueItemId = nextItem.id;
-    db.playbackState.status = 'PLAYING';
-    wsServer.broadcast('player.play', { item: nextItem });
+    const call = db.callNextParticipant('CONTROLLER', db.session.activeControllerName || 'Controlador');
+    if (call) {
+      wsServer.broadcast('participant.turn_called', { callingState: call });
+    }
   } else {
     db.playbackState.currentQueueItemId = null;
     db.playbackState.status = 'IDLE';
@@ -921,7 +1038,7 @@ apiRouter.post('/controller/next', (req, res) => {
 
   db.playbackState.updatedAt = new Date().toISOString();
   wsServer.broadcastAuthoritativeState();
-  res.json({ success: true, nextItem: nextItem || null });
+  res.json({ success: true, callingState: db.callingState, playbackState: db.playbackState });
 });
 
 apiRouter.post('/controller/report-error', (req, res) => {
@@ -1305,6 +1422,21 @@ apiRouter.get('/leads', (req, res) => {
   });
 });
 
+apiRouter.get(['/leads/export', '/leads/export.csv'], (req, res) => {
+  const leadsArray = Array.from(db.leads.values());
+  const header = 'Nome,WhatsApp,Participacoes,PrimeiraVisita,UltimaVisita,ConsentimentoMarketing\n';
+  const rows = leadsArray
+    .map(
+      (l) =>
+        `"${l.name}","${l.normalizedWhatsapp}",${l.participationsCount},"${l.firstParticipation}","${l.lastParticipation}",${l.consentMarketing}`
+    )
+    .join('\n');
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="vozplay-leads-${db.session.code || 'slz'}.csv"`);
+  res.send(header + rows);
+});
+
 // ==========================================
 // 10. MÉTRICAS (/api/v1/metrics)
 // ==========================================
@@ -1361,3 +1493,150 @@ apiRouter.get('/devices', (req, res) => {
     devices: Array.from(db.devices.values())
   });
 });
+
+// ==========================================
+// 12. IDENTIDADE VISUAL & BRANDING POR ESTABELECIMENTO
+// Seções 3, 4, 5, 6, 7, 8, 20, 21, 23, 24, 26 do Requisito
+// ==========================================
+
+// GET /api/v1/establishment/branding - Consulta da identidade visual do estabelecimento da sessão ativa
+apiRouter.get('/establishment/branding', (req, res) => {
+  const establishmentId = db.session.establishmentId;
+  const branding = db.getBranding(establishmentId);
+  res.json({
+    success: true,
+    data: db.getBrandingDTO(establishmentId),
+    full: branding
+  });
+});
+
+// PUT /api/v1/establishment/branding - Atualiza configurações de branding com validação WCAG
+apiRouter.put('/establishment/branding', (req, res) => {
+  const establishmentId = db.session.establishmentId;
+  const payload = req.body || {};
+
+  const result = db.updateBranding(establishmentId, payload);
+
+  if (!result.success) {
+    return res.status(400).json({
+      success: false,
+      message: result.error || 'Erro ao atualizar identidade visual.'
+    });
+  }
+
+  // Notificação em tempo real via WebSocket (Seção 21 do Requisito)
+  wsServer.broadcast('branding.updated', {
+    branding: db.getBrandingDTO(establishmentId),
+    establishmentName: result.branding.businessName,
+    tv: db.getTVSessionDTO()
+  });
+
+  res.json({
+    success: true,
+    data: db.getBrandingDTO(establishmentId),
+    accessibility: result.accessibility,
+    message: 'Identidade visual do estabelecimento atualizada com sucesso!'
+  });
+});
+
+// POST /api/v1/establishment/branding/logo - Upload seguro de logo (PNG, JPEG, WebP, SVG sanitizado)
+apiRouter.post('/establishment/branding/logo', (req, res) => {
+  const establishmentId = db.session.establishmentId;
+  const { logoData } = req.body || {};
+
+  if (!logoData || typeof logoData !== 'string') {
+    return res.status(400).json({
+      success: false,
+      message: 'Dados da imagem não fornecidos.'
+    });
+  }
+
+  // Limite de tamanho: máximo 2.5MB em string base64 / data URL
+  if (logoData.length > 3.5 * 1024 * 1024) {
+    return res.status(400).json({
+      success: false,
+      message: 'O arquivo de logo excede o limite máximo permitido de 2.5MB.'
+    });
+  }
+
+  let finalLogoUrl = logoData.trim();
+
+  // Se for SVG, sanitiza rigorosamente contra XSS
+  if (finalLogoUrl.startsWith('data:image/svg+xml') || finalLogoUrl.includes('<svg')) {
+    let rawSvg = finalLogoUrl;
+    if (finalLogoUrl.startsWith('data:image/svg+xml;base64,')) {
+      try {
+        const base64Content = finalLogoUrl.split(',')[1];
+        rawSvg = Buffer.from(base64Content, 'base64').toString('utf-8');
+      } catch {
+        return res.status(400).json({ success: false, message: 'Falha ao decodificar SVG.' });
+      }
+    } else if (finalLogoUrl.startsWith('data:image/svg+xml,')) {
+      rawSvg = decodeURIComponent(finalLogoUrl.split(',')[1]);
+    }
+
+    const svgCheck = sanitizeSvgContent(rawSvg);
+    if (!svgCheck.safe) {
+      return res.status(400).json({
+        success: false,
+        message: svgCheck.error || 'Arquivo SVG inseguro ou mal formatado.'
+      });
+    }
+
+    // Re-encoda SVG sanitizado
+    finalLogoUrl = `data:image/svg+xml;base64,${Buffer.from(svgCheck.sanitizedSvg!).toString('base64')}`;
+  } else if (!finalLogoUrl.startsWith('data:image/png') && !finalLogoUrl.startsWith('data:image/jpeg') && !finalLogoUrl.startsWith('data:image/webp') && !finalLogoUrl.startsWith('https://')) {
+    return res.status(400).json({
+      success: false,
+      message: 'Formato de imagem não suportado. Use PNG, JPEG, WebP ou SVG seguro.'
+    });
+  }
+
+  const result = db.updateBranding(establishmentId, { logoUrl: finalLogoUrl });
+
+  wsServer.broadcast('branding.updated', {
+    branding: db.getBrandingDTO(establishmentId),
+    tv: db.getTVSessionDTO()
+  });
+
+  res.json({
+    success: true,
+    logoUrl: finalLogoUrl,
+    message: 'Logo do estabelecimento atualizada com sucesso!'
+  });
+});
+
+// DELETE /api/v1/establishment/branding/logo - Remove a logo e volta para a padrão
+apiRouter.delete('/establishment/branding/logo', (req, res) => {
+  const establishmentId = db.session.establishmentId;
+  const result = db.updateBranding(establishmentId, { logoUrl: '' });
+
+  wsServer.broadcast('branding.updated', {
+    branding: db.getBrandingDTO(establishmentId),
+    tv: db.getTVSessionDTO()
+  });
+
+  res.json({
+    success: true,
+    message: 'Logo personalizada removida. A marca padrão oficial será exibida.'
+  });
+});
+
+// POST /api/v1/establishment/branding/reset - Restaura para a identidade padrão do VozPlay
+apiRouter.post('/establishment/branding/reset', (req, res) => {
+  const establishmentId = db.session.establishmentId;
+  const resetBranding = db.resetBranding(establishmentId);
+
+  wsServer.broadcast('branding.updated', {
+    branding: db.getBrandingDTO(establishmentId),
+    establishmentName: resetBranding.businessName,
+    tv: db.getTVSessionDTO()
+  });
+
+  res.json({
+    success: true,
+    data: db.getBrandingDTO(establishmentId),
+    message: 'Identidade visual do estabelecimento restaurada para os padrões oficiais do VozPlay.'
+  });
+});
+

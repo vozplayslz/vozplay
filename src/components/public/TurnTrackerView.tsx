@@ -21,7 +21,9 @@ import {
   ExternalLink,
   Bell,
   AlertCircle,
-  Users
+  Users,
+  Megaphone,
+  Timer
 } from 'lucide-react';
 
 interface TurnTrackerProps {
@@ -39,10 +41,12 @@ interface ShareData {
   musicArtist: string;
   versionStyle: string;
   toneOffset?: number;
-  status: 'QUEUED' | 'PLAYING' | 'COMPLETED' | 'CANCELLED';
+  status: 'QUEUED' | 'CALLED' | 'PLAYING' | 'COMPLETED' | 'CANCELLED';
   positionInQueue: string | number;
   estimatedWaitMinutes: number;
   establishmentName: string;
+  establishmentSlogan?: string;
+  establishmentLogoUrl?: string;
   sessionStatus: string;
   domain: string;
 }
@@ -148,30 +152,48 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
   }
 
   const isPlaying = data.status === 'PLAYING';
+  const isCalled = data.status === 'CALLED';
   const isCompleted = data.status === 'COMPLETED';
-  const isNext = !isCompleted && !isPlaying && (data.positionInQueue === 1 || data.positionInQueue === '1º da fila' || data.positionInQueue === 'Próxima na fila');
+  const isNext = !isCompleted && !isPlaying && !isCalled && (data.positionInQueue === 1 || data.positionInQueue === '1º da fila' || data.positionInQueue === 'Próxima na fila');
 
-  // Trigger subtle haptic vibration when participant becomes next (PRD Seção 4.2)
+  // Trigger subtle haptic vibration when participant becomes next or is called (PRD Seção 4.2)
   useEffect(() => {
-    if (isNext && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    if ((isNext || isCalled) && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
-        navigator.vibrate([200, 100, 200]);
+        navigator.vibrate(isCalled ? [300, 150, 300, 150, 300] : [200, 100, 200]);
       } catch (e) {
         // vibration not allowed or unsupported
       }
     }
-  }, [isNext]);
+  }, [isNext, isCalled]);
 
   return (
     <div className="max-w-md mx-auto p-4 sm:p-6 space-y-6 animate-in fade-in duration-300">
       {/* Top Bar with Venue */}
       <div className="flex items-center justify-between text-xs pb-3 border-b border-white/[0.08]">
-        <div className="flex items-center gap-2.5">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-          </span>
-          <span className="font-bold text-white tracking-wide">{data.establishmentName || 'VozPlay Lounge & Bar'}</span>
+        <div className="flex items-center gap-2.5 min-w-0">
+          {data.establishmentLogoUrl ? (
+            <img
+              src={data.establishmentLogoUrl}
+              alt={data.establishmentName}
+              className="w-6 h-6 object-contain rounded bg-black/40 p-0.5 border border-white/10 shrink-0"
+            />
+          ) : (
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+          )}
+          <div className="truncate">
+            <span className="font-bold text-white tracking-wide block truncate">
+              {data.establishmentName || 'VozPlay Lounge & Bar'}
+            </span>
+            {data.establishmentSlogan && (
+              <span className="text-[10px] text-slate-400 block truncate">
+                {data.establishmentSlogan}
+              </span>
+            )}
+          </div>
         </div>
         {onClose && (
           <button
@@ -182,6 +204,45 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
           </button>
         )}
       </div>
+
+      {/* Chamando ao Palco Alert Banner */}
+      {isCalled && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 border-2 border-amber-300 shadow-xl shadow-amber-600/30 text-center animate-pulse space-y-2 text-white">
+          <div className="flex items-center justify-center gap-2 text-white font-black text-sm uppercase tracking-wider">
+            <Megaphone className="w-4 h-4 text-amber-200 animate-bounce" />
+            <span>Você foi Chamado ao Palco!</span>
+          </div>
+          <p className="text-xs text-amber-100 font-medium">
+            Dirija-se ao microfone agora! Aproxime-se da cabine ou abra o app para ver a letra na palma da mão.
+          </p>
+          {onGoToParticipant && (
+            <button
+              onClick={onGoToParticipant}
+              className="mt-2 w-full py-2.5 px-3 rounded-xl bg-white text-amber-950 font-black text-xs shadow-lg hover:bg-amber-50 active:scale-95 transition flex items-center justify-center gap-2"
+            >
+              <Mic2 className="w-4 h-4 text-amber-700" />
+              <span>Abrir App do Cantor & Ver Letras</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Cantando Agora Alert Banner com Letras no Celular */}
+      {isPlaying && onGoToParticipant && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-pink-500/20 via-purple-500/20 to-pink-500/20 border border-pink-500/40 text-center space-y-2 shadow-lg">
+          <div className="flex items-center justify-center gap-2 text-pink-300 font-bold text-xs">
+            <Radio className="w-4 h-4 text-pink-400 animate-pulse" />
+            <span>Apresentação ativa na TV Lounge</span>
+          </div>
+          <button
+            onClick={onGoToParticipant}
+            className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-black text-xs shadow-md active:scale-95 transition flex items-center justify-center gap-2"
+          >
+            <Mic2 className="w-4 h-4" />
+            <span>Acompanhar Letras Sincronizadas no Celular</span>
+          </button>
+        </div>
+      )}
 
       {/* Prepare seu Microfone Alert Banner (PRD Seções 4.2 e 32) */}
       {isNext && (
@@ -201,6 +262,8 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
         className={`rounded-3xl border p-6 sm:p-7 text-center relative overflow-hidden shadow-2xl transition-all ring-1 ${
           isPlaying
             ? 'bg-gradient-to-b from-[#1c0f2a] via-[#120c1f] to-[#090b14] border-pink-500/50 shadow-pink-500/20 ring-pink-500/30'
+            : isCalled
+            ? 'bg-gradient-to-b from-[#2a1708] via-[#1a0e05] to-[#0d0702] border-amber-500/60 shadow-amber-500/20 ring-amber-500/30'
             : isCompleted
             ? 'bg-[#0d1222] border-white/10 ring-white/5'
             : 'bg-gradient-to-b from-[#12132e] via-[#0d1222] to-[#080c16] border-purple-500/40 shadow-purple-500/10 ring-purple-500/20'
@@ -215,6 +278,11 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
             <span className="bg-pink-500/20 text-pink-300 border border-pink-500/40 flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider shadow-lg shadow-pink-500/20 animate-pulse">
               <Radio className="w-3.5 h-3.5 text-pink-400" />
               Ao Vivo no Palco Agora!
+            </span>
+          ) : isCalled ? (
+            <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider shadow-lg shadow-amber-500/20 animate-bounce">
+              <Megaphone className="w-3.5 h-3.5 text-amber-300" />
+              Chamando ao Palco (30s)
             </span>
           ) : isCompleted ? (
             <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider">

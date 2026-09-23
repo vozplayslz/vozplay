@@ -14,6 +14,29 @@ CREATE TABLE IF NOT EXISTS establishments (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 1.1 Identidade Visual & Branding do Estabelecimento (White-Label)
+CREATE TABLE IF NOT EXISTS establishment_branding (
+    id VARCHAR(64) PRIMARY KEY,
+    establishment_id VARCHAR(64) UNIQUE NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
+    logo_url TEXT,
+    business_name VARCHAR(100) NOT NULL,
+    slogan VARCHAR(160),
+    primary_color VARCHAR(16) NOT NULL DEFAULT '#7C3AED',
+    secondary_color VARCHAR(16) NOT NULL DEFAULT '#EC4899',
+    accent_color VARCHAR(16) NOT NULL DEFAULT '#F59E0B',
+    background_color VARCHAR(16) NOT NULL DEFAULT '#060811',
+    surface_color VARCHAR(16) NOT NULL DEFAULT '#0E1322',
+    text_color VARCHAR(16) NOT NULL DEFAULT '#F8FAFC',
+    theme_mode VARCHAR(16) NOT NULL DEFAULT 'DARK', -- 'DARK', 'LIGHT', 'AUTO'
+    tv_theme VARCHAR(16) NOT NULL DEFAULT 'DARK',
+    participant_theme VARCHAR(16) NOT NULL DEFAULT 'DARK',
+    controller_theme VARCHAR(16) NOT NULL DEFAULT 'DARK',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_establishment_branding_est ON establishment_branding(establishment_id);
+
 -- 2. Dispositivos e Clientes
 CREATE TABLE IF NOT EXISTS devices (
     id VARCHAR(64) PRIMARY KEY,
@@ -141,9 +164,12 @@ CREATE TABLE IF NOT EXISTS queue_items (
     music_id VARCHAR(64) REFERENCES music(id) ON DELETE CASCADE,
     version_id VARCHAR(64) REFERENCES music_versions(id) ON DELETE CASCADE,
     tone_offset INTEGER NOT NULL DEFAULT 0,
-    status VARCHAR(32) NOT NULL DEFAULT 'QUEUED', -- 'QUEUED', 'PLAYING', 'COMPLETED', 'CANCELLED', 'CANCELLED_SESSION_ENDED', 'ERROR'
+    status VARCHAR(32) NOT NULL DEFAULT 'QUEUED', -- 'QUEUED', 'CALLED', 'PLAYING', 'COMPLETED', 'CANCELLED', 'CANCELLED_SESSION_ENDED', 'ERROR'
     order_index INTEGER NOT NULL,
     queued_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    called_at TIMESTAMP WITH TIME ZONE,
+    call_expires_at TIMESTAMP WITH TIME ZONE,
+    missed_turn_count INTEGER NOT NULL DEFAULT 0,
     started_at TIMESTAMP WITH TIME ZONE,
     completed_at TIMESTAMP WITH TIME ZONE,
     error_message TEXT

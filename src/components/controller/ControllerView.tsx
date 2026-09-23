@@ -30,9 +30,10 @@ import {
   PlusCircle,
   History,
   Clock,
-  Users
+  Users,
+  Megaphone
 } from 'lucide-react';
-import { QueueItem, PresenceCode, Session, PlaybackStatus } from '../../types.js';
+import { QueueItem, PresenceCode, Session, PlaybackStatus, CallingParticipantState } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
 import { ControllerSidebar, ControllerSectionFilter } from './ControllerSidebar.js';
 import { SoundboardPanel } from './SoundboardPanel.js';
@@ -41,13 +42,15 @@ interface ControllerViewProps {
   session: Session | null;
   tvConnected: boolean;
   onStateRefresh?: () => void;
+  lastQueueEvent?: any;
 }
 
-export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConnected, onStateRefresh }) => {
+export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConnected, onStateRefresh, lastQueueEvent }) => {
   const [presenceCode, setPresenceCode] = useState<PresenceCode | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus>('IDLE');
   const [playingItem, setPlayingItem] = useState<QueueItem | null>(null);
+  const [callingState, setCallingState] = useState<CallingParticipantState | null>(null);
   const [actionFeedback, setActionFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [isActing, setIsActing] = useState(false);
@@ -98,6 +101,12 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (lastQueueEvent) {
+      fetchQueueAndPlayback();
+    }
+  }, [lastQueueEvent]);
+
   const fetchPresenceCode = async () => {
     try {
       const res = await fetch('/api/v1/controller/presence-code');
@@ -119,14 +128,65 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
       if (data && data.success) {
         setQueue(data.queue);
         setPlayingItem(data.playingItem);
-        if (data.playingItem) {
+        setCallingState(data.callingState || null);
+        if (data.playbackState) {
+          setPlaybackStatus(data.playbackState.status);
+        } else if (data.playingItem) {
           setPlaybackStatus('PLAYING');
+        } else if (data.callingState) {
+          setPlaybackStatus('CALLING_PARTICIPANT');
         } else {
           setPlaybackStatus('IDLE');
         }
       }
     } catch {
       // Reconexão transitória
+    }
+  };
+
+  const handleCallNext = async () => {
+    setIsActing(true);
+    try {
+      const res = await fetch('/api/v1/controller/call-next', { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.callingState) {
+        setCallingState(data.callingState);
+        setPlaybackStatus('CALLING_PARTICIPANT');
+        showFeedback(`Chamada disparada na TV para ${data.callingState.participantDisplayName}! Contagem de 30s iniciada.`, 'success');
+        fetchQueueAndPlayback();
+        if (onStateRefresh) onStateRefresh();
+      } else {
+        showFeedback(data.error || 'Não foi possível chamar o próximo participante.', 'error');
+      }
+    } catch {
+      showFeedback('Erro ao chamar participante.', 'error');
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  const handleCancelCall = async () => {
+    setIsActing(true);
+    try {
+      const res = await fetch('/api/v1/controller/call-cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Cancelado manualmente na mesa de som' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCallingState(null);
+        setPlaybackStatus('IDLE');
+        showFeedback('Chamada de participante cancelada.', 'success');
+        fetchQueueAndPlayback();
+        if (onStateRefresh) onStateRefresh();
+      } else {
+        showFeedback(data.error || 'Falha ao cancelar chamada.', 'error');
+      }
+    } catch {
+      showFeedback('Erro de comunicação com o servidor.', 'error');
+    } finally {
+      setIsActing(false);
     }
   };
 
@@ -519,13 +579,71 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
           <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
             playbackStatus === 'PLAYING'
               ? 'bg-pink-500/20 text-pink-300 border border-pink-500/40 animate-pulse'
+              : playbackStatus === 'CALLING_PARTICIPANT'
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
               : playbackStatus === 'PAUSED'
               ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
               : 'bg-white/[0.05] text-slate-400 border border-white/[0.08]'
           }`}>
-            {playbackStatus === 'PLAYING' ? 'No Ar • Reproduzindo' : playbackStatus === 'PAUSED' ? 'Pausado' : 'Aguardando Início'}
+            {playbackStatus === 'PLAYING'
+              ? 'No Ar • Reproduzindo'
+              : playbackStatus === 'CALLING_PARTICIPANT'
+              ? 'Chamando no Palco (30s)'
+              : playbackStatus === 'PAUSED'
+              ? 'Pausado'
+              : 'Aguardando Início'}
           </span>
         </div>
+
+        {/* PRD: Active Calling Banner */}
+        {playbackStatus === 'CALLING_PARTICIPANT' && callingState && (
+          <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-950/50 via-[#181105] to-[#1a1408] border border-amber-500/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xl animate-pulse">
+            <div className="space-y-2 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/30 text-amber-200 border border-amber-500/60 flex items-center gap-1.5">
+                  <Megaphone className="w-3.5 h-3.5 text-amber-300" />
+                  Chamada Pública no Telão
+                </span>
+                <span className="text-xs font-mono font-black text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/40">
+                  {callingState.remainingSeconds || 30}s restantes
+                </span>
+              </div>
+              <h4 className="text-xl sm:text-2xl font-display font-black text-white truncate">
+                {callingState.musicTitle}
+              </h4>
+              <p className="text-xs text-amber-100 truncate flex items-center gap-2">
+                <span>Cantor(a): <strong className="text-amber-300 font-bold">{callingState.participantDisplayName}</strong></span>
+                {callingState.isDuet && callingState.partnerDisplayName && (
+                  <span className="text-pink-300 font-bold">• Dueto com {callingState.partnerDisplayName}</span>
+                )}
+                <span className="text-slate-400 font-mono">({callingState.musicArtist})</span>
+              </p>
+              <p className="text-[11px] text-amber-200/80">
+                O participante foi notificado no celular e na TV. Ele deve clicar em <strong>&quot;Começar a Cantar&quot;</strong> em até 30 segundos.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <button
+                onClick={handlePlay}
+                disabled={isActing}
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs font-black transition flex items-center gap-1.5 shadow-lg active:scale-95"
+                title="Forçar início imediato da música sem aguardar clique do participante"
+              >
+                <Play className="w-4 h-4 fill-slate-950" />
+                <span>Forçar Início</span>
+              </button>
+              <button
+                onClick={handleCancelCall}
+                disabled={isActing}
+                className="px-4 py-2.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-rose-300 text-xs font-bold transition flex items-center gap-1.5 active:scale-95"
+              >
+                <XCircle className="w-4 h-4" />
+                <span>Cancelar Chamada</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Current song details */}
         {playingItem ? (
@@ -598,12 +716,12 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
               </button>
             </div>
           </div>
-        ) : (
+        ) : playbackStatus !== 'CALLING_PARTICIPANT' ? (
           <div className="p-8 text-center rounded-2xl bg-[#090d18] border border-white/[0.06] text-slate-400 space-y-2">
             <p className="text-sm font-semibold text-slate-300">Nenhuma música em reprodução no momento.</p>
             {activeQueued.length > 0 ? (
               <p className="text-xs text-purple-300">
-                Há <strong>{activeQueued.length} música(s)</strong> na fila aguardando. Pressione <strong>Iniciar Reprodução</strong> abaixo.
+                Há <strong>{activeQueued.length} música(s)</strong> na fila aguardando. Clique em <strong>Chamar Próximo (30s)</strong> para convocar o cantor.
               </p>
             ) : (
               <p className="text-xs text-slate-500">
@@ -611,10 +729,10 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
               </p>
             )}
           </div>
-        )}
+        ) : null}
 
         {/* Action Controls */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
           {playbackStatus === 'PLAYING' ? (
             <button
               id="btn-ctrl-pause"
@@ -627,13 +745,27 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
             </button>
           ) : (
             <button
+              id="btn-ctrl-call-next"
+              onClick={handleCallNext}
+              disabled={isActing || activeQueued.length === 0 || playbackStatus === 'CALLING_PARTICIPANT'}
+              className="py-4 px-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 disabled:opacity-40 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-amber-500/25 transition flex items-center justify-center gap-2 active:scale-95"
+            >
+              <Megaphone className="w-5 h-5" />
+              <span>Chamar Próximo (30s)</span>
+            </button>
+          )}
+
+          {/* Quick Play Direct Override */}
+          {playbackStatus !== 'PLAYING' && (
+            <button
               id="btn-ctrl-play"
               onClick={handlePlay}
               disabled={isActing || activeQueued.length === 0}
               className="py-4 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 disabled:opacity-40 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-emerald-600/20 transition flex items-center justify-center gap-2 active:scale-95"
+              title="Iniciar reprodução direta na TV sem contagem regressiva"
             >
               <Play className="w-5 h-5 fill-slate-950" />
-              <span>Iniciar Reprodução</span>
+              <span>Tocar Direto</span>
             </button>
           )}
 
@@ -649,7 +781,7 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
 
           <button
             onClick={fetchQueueAndPlayback}
-            className="col-span-2 sm:col-span-1 py-4 px-4 rounded-2xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 hover:text-white font-bold text-xs border border-white/10 transition flex items-center justify-center gap-2 active:scale-95"
+            className="py-4 px-4 rounded-2xl bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 hover:text-white font-bold text-xs border border-white/10 transition flex items-center justify-center gap-2 active:scale-95"
           >
             <RefreshCw className="w-4 h-4" />
             <span>Atualizar Mesa</span>
@@ -748,10 +880,17 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
                       Tom {item.toneOffset > 0 ? `+${item.toneOffset}` : item.toneOffset}
                     </span>
                   )}
+                  {item.missedTurnCount !== undefined && item.missedTurnCount > 0 && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30" title="Participante não iniciou a apresentação a tempo na chamada anterior">
+                      {item.missedTurnCount === 1 ? '1ª Vez Perdida' : `${item.missedTurnCount}ª Vez Perdida`}
+                    </span>
+                  )}
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
                       item.status === 'PLAYING'
                         ? 'bg-pink-500/20 text-pink-300 border border-pink-500/40'
+                        : item.status === 'CALLED'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
                         : item.status === 'QUEUED'
                         ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
                         : item.status === 'COMPLETED'
@@ -759,11 +898,19 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
                         : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                     }`}
                   >
-                    {item.status === 'PLAYING' ? 'NO PALCO' : item.status === 'QUEUED' ? 'NA FILA' : item.status === 'COMPLETED' ? 'CONCLUÍDO' : 'ERRO'}
+                    {item.status === 'PLAYING'
+                      ? 'NO PALCO'
+                      : item.status === 'CALLED'
+                      ? 'CHAMADO (30S)'
+                      : item.status === 'QUEUED'
+                      ? 'NA FILA'
+                      : item.status === 'COMPLETED'
+                      ? 'CONCLUÍDO'
+                      : 'ERRO'}
                   </span>
 
                   {/* Operações da Mesa de Som para Músicas na Fila (PRD Seção 20 e 24) */}
-                  {item.status === 'QUEUED' && (
+                  {(item.status === 'QUEUED' || item.status === 'CALLED') && (
                     <div className="flex items-center gap-1.5 pl-1 border-l border-white/10">
                       <button
                         onClick={() => handlePromoteItem(item.id)}

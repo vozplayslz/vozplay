@@ -205,10 +205,10 @@ export const HelpModal: React.FC<HelpModalProps> = ({
 
                   <div className="p-4 rounded-2xl bg-[#111728] border border-white/[0.07] space-y-2">
                     <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
-                      <Clock className="w-4 h-4" /> 4. Acompanhe Sua Vez
+                      <Clock className="w-4 h-4" /> 4. Acompanhe Sua Vez & Chamada ao Palco (30s)
                     </div>
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      Monitore sua posição na fila (<code className="text-emerald-300 font-mono">#1, #2...</code>) e o tempo estimado de espera. Quando faltar 1 música, prepare-se para subir ao palco!
+                      Monitore sua posição na fila (<code className="text-emerald-300 font-mono">#1, #2...</code>) e o tempo estimado. Quando sua música for chamada pelo operador, você receberá um alerta sonoro/vibratório com o botão <strong>Começar a Cantar Agora</strong>. A música inicia no telão e as <strong>Letras Sincronizadas</strong> abrem na tela do seu celular!
                     </p>
                   </div>
 
@@ -297,11 +297,12 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                       <Volume2 className="w-4 h-4" /> Fila e Controles de Playback
                     </h4>
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      - <strong>Tocar / Iniciar:</strong> Inicia a próxima música da fila sincronizada na TV.<br />
+                      - <strong>Chamar Próximo (30s):</strong> Aciona a tela de convocação no telão da TV e notifica o smartphone do participante. Um cronômetro decrescente de 30s orienta o cantor a subir ao palco e confirmar presença.<br />
+                      - <strong>Tocar / Iniciar:</strong> Inicia imediatamente a próxima música ou a música chamada na TV.<br />
                       - <strong>Pausar / Retomar:</strong> Interrompe temporariamente a reprodução para avisos sonoros.<br />
                       - <strong>Pular Música:</strong> Encerra a música atual e avança para o próximo participante.<br />
                       - <strong>Controle de Volume:</strong> Ajusta o volume master da TV remotamente em tempo real.<br />
-                      - <strong>Remover Desistente:</strong> Se o participante não comparecer ao ser chamado, remova-o da fila com o botão de lixeira para reindexar a fila instantaneamente.
+                      - <strong>Gestão de Ausências Justa:</strong> Se o cantor não comparecer na 1ª chamada, a música continua na fila com 1 aviso de tolerância. Na 2ª ausência consecutiva, a música é movida para o final da fila sem prejudicar os demais clientes.
                     </p>
                   </div>
 
@@ -371,6 +372,17 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                       - <strong>Leads de Marketing:</strong> Visualize a lista completa de participantes cadastrados com WhatsApp e consentimento LGPD, pronta para campanhas de retorno e fidelidade.
                     </p>
                   </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-purple-500/30 space-y-2">
+                    <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-pink-400" /> Identidade Visual por Estabelecimento (Marca Própria)
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      - <strong>Logomarca & Nome Comercial:</strong> Faça upload da logomarca do seu bar/lounge (PNG, JPG ou SVG com sanitização nativa anti-XSS) e defina o nome comercial e slogan oficial.<br />
+                      - <strong>Paleta de Cores & Contraste WCAG:</strong> Escolha entre temas pré-configurados (Roxo Neon, Azul Eletrizante, Esmeralda Lounge, Ouro & Âmbar, Sunset) ou selecione tons personalizados. O sistema valida automaticamente o contraste para garantir leitura perfeita das letras no telão.<br />
+                      - <strong>Sincronização em Tempo Real:</strong> As alterações são propagadas instantaneamente via WebSockets para a TV, os smartphones dos clientes e a mesa de som, sem necessidade de recarregar a página ou reiniciar a sessão.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
@@ -413,6 +425,15 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                     </h4>
                     <p className="text-xs text-slate-300 leading-relaxed">
                       O canto inferior direito exibe permanentemente o QR Code com a URL oficial da unidade. Clientes que apontam a câmera do celular entram diretamente na sessão ativa sem precisar digitar códigos ou endereços complexos.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-amber-500/20 space-y-2">
+                    <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                      <Mic className="w-4 h-4 text-amber-400" /> 4. Tela de Convocação ao Palco (30s)
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Quando o operador aciona a chamada do próximo cantor, a TV entra em modo holofote de palco com contagem regressiva de 30 segundos, exibindo o nome do participante ou dupla em letras gigantes, instruindo o cliente a se posicionar no microfone.
                     </p>
                   </div>
                 </div>

@@ -118,9 +118,11 @@ export const ControllerSidebar: React.FC<ControllerSidebarProps> = ({
             <Sliders className="w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-xs font-display font-black text-white leading-tight">Mesa de Som</h3>
+            <h3 className="text-xs font-display font-black text-white leading-tight truncate">
+              {session?.branding?.businessName || session?.establishmentName || 'VozPlay Lounge'}
+            </h3>
             <span className="text-[10px] text-purple-300 font-semibold block truncate">
-              {session?.activeControllerName || 'Operador'}
+              Mesa de Som • {session?.activeControllerName || 'Operador'}
             </span>
           </div>
         </div>

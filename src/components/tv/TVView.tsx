@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Tv, Music2, Radio, AlertTriangle, QrCode, Sparkles, CheckCircle2, Mic2, Flame, Users } from 'lucide-react';
+import { Tv, Music2, Radio, AlertTriangle, QrCode, Sparkles, CheckCircle2, Mic2, Flame, Users, Megaphone, Timer } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TVSessionDTO } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
@@ -74,6 +74,23 @@ export const TVView: React.FC<TVViewProps> = ({
     badge: string;
     applauseCount: number;
   } | null>(null);
+
+  // Countdown timer for calling state
+  const [callingSeconds, setCallingSeconds] = useState<number>(30);
+
+  useEffect(() => {
+    if (tvData?.callingState?.remainingSeconds !== undefined) {
+      setCallingSeconds(tvData.callingState.remainingSeconds);
+    }
+  }, [tvData?.callingState]);
+
+  useEffect(() => {
+    if (!tvData?.callingState) return;
+    const timer = setInterval(() => {
+      setCallingSeconds((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [tvData?.callingState]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -376,15 +393,28 @@ export const TVView: React.FC<TVViewProps> = ({
       {/* TOP BAR: Lounge Branding & Session Code & Discrete Alert */}
       <div className="relative z-10 flex items-center justify-between gap-4 border-b border-white/10 pb-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-pink-500 flex items-center justify-center font-black text-white text-base shadow-lg shadow-indigo-500/20">
-            VP
-          </div>
+          {tvData?.branding?.logoUrl ? (
+            <img
+              src={tvData.branding.logoUrl}
+              alt={tvData.branding.businessName || 'Logo'}
+              className="h-10 max-w-[150px] object-contain rounded-lg p-0.5 bg-black/40 border border-white/10"
+            />
+          ) : (
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-base shadow-lg"
+              style={{
+                background: `linear-gradient(135deg, ${tvData?.branding?.primaryColor || '#6366F1'}, ${tvData?.branding?.secondaryColor || '#EC4899'})`
+              }}
+            >
+              VP
+            </div>
+          )}
           <div>
             <h1 className="font-black text-lg tracking-wider text-white">
-              VOZ<span className="text-pink-500">PLAY</span> TV
+              {tvData?.branding?.businessName || tvData?.establishmentName || 'VOZPLAY TV'}
             </h1>
             <span className="text-xs text-slate-400">
-              {tvData?.establishmentName || 'VozPlay Lounge'}
+              {tvData?.branding?.slogan || 'Karaokê Profissional & Lounge'}
             </span>
           </div>
         </div>
@@ -542,6 +572,75 @@ export const TVView: React.FC<TVViewProps> = ({
                 />
               </div>
             </div>
+          ) : tvData?.callingState ? (
+            /* PRD: CALLING PARTICIPANT STAGE SCREEN (30-SECOND WINDOW) */
+            <div className="text-center py-10 px-6 sm:px-14 rounded-3xl bg-gradient-to-b from-[#180d24]/95 via-[#0d0a1c]/95 to-[#080714]/95 border-2 border-amber-500/60 backdrop-blur-2xl max-w-4xl w-full shadow-2xl relative overflow-hidden ring-4 ring-amber-500/20 animate-pulse-subtle">
+              {/* Pulsing spotlight effect */}
+              <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-24 left-1/2 -translate-x-1/2 w-96 h-96 bg-pink-500/20 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="relative z-10 space-y-6">
+                {/* Header Badge */}
+                <div className="inline-flex items-center gap-2.5 px-5 py-2 rounded-full bg-amber-500/20 border-2 border-amber-400 text-amber-300 text-xs sm:text-base font-black uppercase tracking-widest shadow-xl shadow-amber-500/25 animate-bounce">
+                  <Megaphone className="w-5 h-5 text-amber-300" />
+                  <span>Atenção: Chamando ao Palco!</span>
+                </div>
+
+                {/* Singer Name */}
+                <div className="space-y-2">
+                  <h1 className="text-4xl sm:text-6xl md:text-7xl font-display font-black text-white tracking-tight drop-shadow-2xl">
+                    {tvData.callingState.participantDisplayName}
+                    {tvData.callingState.isDuet && tvData.callingState.partnerDisplayName && (
+                      <span className="block text-pink-300 text-3xl sm:text-5xl mt-1 font-bold">
+                        & {tvData.callingState.partnerDisplayName}
+                      </span>
+                    )}
+                  </h1>
+
+                  {tvData.callingState.isDuet && (
+                    <div className="flex justify-center">
+                      <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold bg-pink-500/25 border border-pink-500/40 text-pink-300">
+                        <Users className="w-3.5 h-3.5 text-pink-400" />
+                        Apresentação em Dueto (2 Microfones)
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="text-xl sm:text-3xl text-slate-200 font-bold pt-2">
+                    {tvData.callingState.musicTitle} — <span className="text-amber-300">{tvData.callingState.musicArtist}</span>
+                  </div>
+                </div>
+
+                {/* Big Circular Countdown */}
+                <div className="py-2 flex flex-col items-center justify-center">
+                  <div className="relative w-32 h-32 sm:w-40 sm:h-40 flex items-center justify-center">
+                    <div className="absolute inset-0 rounded-full border-4 border-amber-500/30 animate-ping opacity-30" />
+                    <div className="w-full h-full rounded-full border-4 border-amber-400 bg-gradient-to-tr from-amber-950/80 to-purple-950/80 flex flex-col items-center justify-center shadow-2xl shadow-amber-500/30">
+                      <span className="text-4xl sm:text-6xl font-display font-black text-white font-mono leading-none">
+                        {callingSeconds}
+                      </span>
+                      <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-amber-300 mt-1">
+                        Segundos
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-xs sm:text-sm font-semibold text-amber-200/90 mt-3">
+                    Janela de presença física: dirija-se ao microfone!
+                  </p>
+                </div>
+
+                {/* Call to action for the singer */}
+                <div className="p-4 rounded-2xl bg-black/40 border border-white/10 max-w-xl mx-auto space-y-1.5">
+                  <div className="flex items-center justify-center gap-2 text-white font-black text-xs sm:text-sm">
+                    <Mic2 className="w-4 h-4 text-pink-400 animate-pulse" />
+                    <span>Toque em &quot;COMEÇAR A CANTAR&quot; no seu smartphone</span>
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-slate-400">
+                    O sistema aguarda a sua confirmação no celular para soltar a música e a letra sincronizada.
+                  </p>
+                </div>
+              </div>
+            </div>
           ) : (
             /* IDLE / WAITING SCREEN */
             <div className="text-center py-12 px-6 sm:px-12 rounded-3xl bg-[#0d1222]/85 border border-white/10 backdrop-blur-xl max-w-3xl w-full shadow-2xl relative overflow-hidden ring-1 ring-white/10">
@@ -557,10 +656,10 @@ export const TVView: React.FC<TVViewProps> = ({
 
                 <div>
                   <h2 className="text-2xl sm:text-4xl md:text-5xl font-display font-black text-white mb-2 tracking-tight">
-                    Palco VozPlay Disponível
+                    Palco Aberto • {tvData?.branding?.businessName || tvData?.establishmentName || 'VozPlay'}
                   </h2>
                   <p className="text-sm sm:text-base text-slate-300 max-w-lg mx-auto leading-relaxed">
-                    Aponte a câmera do seu celular para o QR Code da sua mesa, acesse o catálogo completo e escolha a sua música para cantar na TV!
+                    {tvData?.branding?.slogan ? `"${tvData.branding.slogan}" — ` : ''}Aponte a câmera do seu celular para o QR Code da sua mesa, acesse o catálogo completo e escolha a sua música para cantar na TV!
                   </p>
                 </div>
 

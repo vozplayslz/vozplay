@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { Session, SessionMetrics, AuditLog, SessionNotification, Lead } from '../../types.js';
 import { SupervisorSidebar, SUPERVISOR_ITEMS_MAP, SupervisorSectionId } from './SupervisorSidebar.js';
+import { SupervisorBrandingSection } from './SupervisorBrandingSection.js';
 
 interface DeviceItem {
   deviceId: string;
@@ -53,9 +54,10 @@ interface SupervisorViewProps {
   session: Session | null;
   tvConnected: boolean;
   onSessionUpdated?: () => void;
+  lastQueueEvent?: any;
 }
 
-export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConnected, onSessionUpdated }) => {
+export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConnected, onSessionUpdated, lastQueueEvent }) => {
   const [activeTab, setActiveTab] = useState<SupervisorSectionId>('OVERVIEW');
   const [metrics, setMetrics] = useState<SessionMetrics | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -112,6 +114,12 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConne
     const interval = setInterval(fetchSupervisorData, 4000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (lastQueueEvent) {
+      fetchSupervisorData();
+    }
+  }, [lastQueueEvent]);
 
   const safeFetchJson = async (url: string) => {
     try {
@@ -619,6 +627,16 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConne
             </p>
           </div>
         </div>
+      )}
+
+      {/* TAB: BRANDING & WHITE-LABEL (Identidade Visual por Estabelecimento) */}
+      {activeTab === 'BRANDING' && (
+        <SupervisorBrandingSection
+          session={session}
+          onBrandingUpdated={() => {
+            if (onSessionUpdated) onSessionUpdated();
+          }}
+        />
       )}
 
       {/* TAB 2: CONTROLLER MANAGEMENT (Section 30) */}

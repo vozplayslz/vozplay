@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+:root {
+  --brand-primary: #7C3AED;
+  --brand-secondary: #EC4899;
+  --brand-accent: #F59E0B;
+  --brand-background: #060811;
+  --brand-surface: #0E1322;
+  --brand-text: #F8FAFC;
+}
+
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
@@ -8,6 +17,35 @@
 
 .font-display {
   font-family: 'Outfit', sans-serif;
+}
+
+/* Custom dynamic branding classes */
+.bg-brand-primary {
+  background-color: var(--brand-primary);
+}
+.text-brand-primary {
+  color: var(--brand-primary);
+}
+.border-brand-primary {
+  border-color: var(--brand-primary);
+}
+.bg-brand-secondary {
+  background-color: var(--brand-secondary);
+}
+.text-brand-secondary {
+  color: var(--brand-secondary);
+}
+.border-brand-secondary {
+  border-color: var(--brand-secondary);
+}
+.bg-brand-accent {
+  background-color: var(--brand-accent);
+}
+.text-brand-accent {
+  color: var(--brand-accent);
+}
+.border-brand-accent {
+  border-color: var(--brand-accent);
 }
 
 /* Custom luxury glass & glow utilities */

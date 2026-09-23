@@ -11,10 +11,11 @@ export type Role = 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'SYSTEM_ADMIN';
 export type ActiveTab = 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV' | 'TRACKER';
 export type ClientType = 'PWA' | 'ANDROID' | 'ANDROID_TV';
 export type SessionStatus = 'CREATED' | 'ACTIVE' | 'PAUSED' | 'ENDED' | 'EXPIRED';
-export type PlaybackStatus = 'IDLE' | 'LOADING' | 'PLAYING' | 'PAUSED' | 'ERROR' | 'COMPLETED';
+export type PlaybackStatus = 'IDLE' | 'LOADING' | 'CALLING_PARTICIPANT' | 'PLAYING' | 'PAUSED' | 'ERROR' | 'COMPLETED';
 
 export type QueueItemStatus = 
   | 'QUEUED'
+  | 'CALLED'
   | 'PLAYING'
   | 'COMPLETED'
   | 'CANCELLED'
@@ -100,8 +101,46 @@ export interface QueueItem {
   queuedAt: string;
   startedAt?: string;
   completedAt?: string;
+  calledAt?: string;
+  callExpiresAt?: string;
+  missedTurnCount?: number; // 0, 1 (primeira perda), 2 (segunda perda)
   errorMessage?: string;
   orderIndex: number;
+}
+
+export interface CallingParticipantState {
+  queueItemId: string;
+  participantId: string;
+  participantDisplayName: string;
+  partnerParticipantId?: string;
+  partnerDisplayName?: string;
+  isDuet?: boolean;
+  musicId: string;
+  musicTitle: string;
+  musicArtist: string;
+  versionId: string;
+  versionStyle: MusicVersionStyle;
+  youtubeVideoId: string;
+  toneOffset?: number;
+  calledAt: string;
+  expiresAt: string;
+  remainingSeconds: number;
+  missedTurnCount: number;
+}
+
+export interface SongLyricLine {
+  timeSec?: number;
+  text: string;
+  section?: 'intro' | 'verse' | 'chorus' | 'bridge' | 'outro';
+}
+
+export interface SongLyrics {
+  musicId: string;
+  title: string;
+  artist: string;
+  hasLyrics: boolean;
+  source?: string;
+  lines: SongLyricLine[];
 }
 
 export type DuetInvitationStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED' | 'EXPIRED';
@@ -140,7 +179,31 @@ export interface Session {
   supervisorId: string;
   supervisorName: string;
   createdAt: string;
+  branding?: EstablishmentBrandingDTO;
 }
+
+export type ThemeMode = 'DARK' | 'LIGHT' | 'AUTO';
+
+export interface EstablishmentBranding {
+  id: string;
+  establishmentId: string;
+  logoUrl?: string;
+  businessName: string;
+  slogan?: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  backgroundColor: string;
+  surfaceColor: string;
+  textColor: string;
+  themeMode: ThemeMode;
+  tvTheme: ThemeMode;
+  participantTheme: ThemeMode;
+  controllerTheme: ThemeMode;
+  updatedAt: string;
+}
+
+export type EstablishmentBrandingDTO = Omit<EstablishmentBranding, 'id'>;
 
 export interface PresenceCode {
   code: string;
@@ -209,6 +272,8 @@ export interface TVSessionDTO {
   isMuted?: boolean;
   scheduledEndTime?: string;
   qrCodeUrl: string;
+  callingState?: CallingParticipantState | null;
+  branding?: EstablishmentBrandingDTO;
 }
 
 export interface Lead {
@@ -286,8 +351,15 @@ export type WSEventType =
   | 'duet.accepted'
   | 'duet.declined'
   | 'duet.cancelled'
+  | 'participant.turn_called'
+  | 'participant.turn_started'
+  | 'participant.turn_missed'
+  | 'participant.turn_missed_again'
+  | 'queue.item_requeued'
+  | 'participant.turn_finished'
   | 'reaction.sent'
   | 'soundboard.play'
+  | 'branding.updated'
   | 'state.sync';
 
 export interface WSMessage<T = unknown> {

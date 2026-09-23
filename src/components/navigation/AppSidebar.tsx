@@ -191,15 +191,25 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             <div className="flex items-center gap-2 min-w-0">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0 shadow-sm shadow-emerald-400/80" />
               <div className="truncate">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block leading-none">Sessão Ativa</span>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block leading-none truncate">
+                  {session.branding?.businessName || session.establishmentName || 'Sessão Ativa'}
+                </span>
                 <span className="font-mono text-xs font-black text-purple-300 tracking-wider">
                   {session.code}
                 </span>
               </div>
             </div>
-            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-white/[0.05] text-slate-300 border border-white/10 font-mono">
-              SLZ
-            </span>
+            {session.branding?.logoUrl ? (
+              <img
+                src={session.branding.logoUrl}
+                alt="Logo"
+                className="w-6 h-6 object-contain rounded bg-black/40 p-0.5 border border-white/10 shrink-0"
+              />
+            ) : (
+              <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-white/[0.05] text-slate-300 border border-white/10 font-mono">
+                SLZ
+              </span>
+            )}
           </div>
         )}
       </div>

@@ -20,12 +20,14 @@ import {
   AlertOctagon,
   X,
   Menu,
-  ChevronRight
+  ChevronRight,
+  Palette
 } from 'lucide-react';
 import { Session } from '../../types.js';
 
 export type SupervisorSectionId =
   | 'OVERVIEW'
+  | 'BRANDING'
   | 'ANALYTICS'
   | 'DEVICES'
   | 'TV_ALERT'
@@ -49,6 +51,7 @@ export interface SupervisorMenuSection {
 
 export const SUPERVISOR_ITEMS_MAP: Record<SupervisorSectionId, { label: string; description: string; icon: React.ComponentType<{ className?: string }> }> = {
   OVERVIEW: { label: 'Sessão & Horários', description: 'Timer, prorrogações e status', icon: Clock },
+  BRANDING: { label: 'Identidade Visual', description: 'Logo, cores, slogan & preview', icon: Palette },
   CONTROLLER: { label: 'Controladores', description: 'Operadores de som & presença', icon: Users },
   TV_ALERT: { label: 'Avisos no Telão', description: 'Transmissão urgente para a TV', icon: Radio },
   QRCODE: { label: 'QR Code da Mesa', description: 'Acesso instantâneo dos clientes', icon: QrCode },
@@ -116,6 +119,18 @@ export const SupervisorSidebar: React.FC<SupervisorSidebarProps> = ({
           description: 'Acesso instantâneo dos clientes',
           icon: QrCode,
           badge: null
+        }
+      ]
+    },
+    {
+      group: 'PERSONALIZAÇÃO & MARCA',
+      items: [
+        {
+          id: 'BRANDING',
+          label: 'Identidade Visual',
+          description: 'Logo, cores, slogan & preview',
+          icon: Palette,
+          badge: 'White-Label'
         }
       ]
     },

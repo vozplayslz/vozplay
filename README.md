@@ -43,6 +43,7 @@ O VozPlay divide a operação em 5 experiências complementares:
 
 ### 3. 🛡️ Supervisor (Gerência / Caixa / Autoridade Geral)
 - **Gestão de Horários & Prorrogação:** Acompanhamento do término programado da sessão com prorrogações rápidas (+15m, +30m, +60m).
+- **Identidade Visual por Estabelecimento (White-Label):** Configuração completa da marca do lounge (logomarca com sanitização SVG nativa anti-XSS, nome comercial, slogan e paleta de cores com auditoria de contraste WCAG 2.1 AA/AAA) propagada em tempo real via WebSockets para a TV, celulares dos clientes e mesa de som.
 - **Encerramento Pontual:** Bloqueio de novas adições e cancelamento seguro de pedidos pendentes ao término do horário contratado da casa.
 - **Assunção Emergencial (*Emergency Takeover*):** Capacidade de revogar o operador atual em segundos e assumir o controle direto da sessão com renovação forçada dos códigos de presença.
 - **Broadcast de Avisos:** Transmissão de comunicados em tempo real na barra de alerta do telão.

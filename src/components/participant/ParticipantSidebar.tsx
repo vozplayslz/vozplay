@@ -372,7 +372,9 @@ export const ParticipantSidebar: React.FC<ParticipantSidebarProps> = ({
             </div>
           </div>
           <p className="text-[11px] text-slate-300 mb-3">
-            {queuedBeforeCount === 0
+            {myQueuedSong.status === 'CALLED'
+              ? '🎤 VOCÊ FOI CHAMADO! Suba ao palco e confirme no topo da tela!'
+              : queuedBeforeCount === 0
               ? '🔥 Prepare o microfone! Você é o próximo!'
               : `Aguarde ~${(queuedBeforeCount + 1) * 4} min (${queuedBeforeCount} antes de você)`}
           </p>

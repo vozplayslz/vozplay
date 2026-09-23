@@ -34,27 +34,34 @@ import {
   Heart,
   Headphones,
   Users,
-  QrCode
+  QrCode,
+  Megaphone,
+  Timer,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Participant, Music, QueueItem, PlaylistItem, MusicVersion, WishlistItem } from '../../types.js';
+import { Participant, Music, QueueItem, PlaylistItem, MusicVersion, WishlistItem, CallingParticipantState, Session } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
 import { ParticipantSidebar, ParticipantSubTab } from './ParticipantSidebar.js';
 import { RecommendedPlaylistView } from './RecommendedPlaylistView.js';
 import { QRScannerModal } from './QRScannerModal.js';
 
 interface ParticipantViewProps {
+  session?: Session | null;
   sessionCode?: string;
   onQueueUpdated?: () => void;
   onOpenTracker?: (queueItemId: string) => void;
   lastSoundboard?: { soundType: string; label: string; timestamp?: string; _t?: number } | null;
+  lastQueueEvent?: any;
 }
 
 export const ParticipantView: React.FC<ParticipantViewProps> = ({
+  session,
   sessionCode = 'SLZ-704',
   onQueueUpdated,
   onOpenTracker,
-  lastSoundboard
+  lastSoundboard,
+  lastQueueEvent
 }) => {
   // Mobile Sound Effects state (PRD Section 47)
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -125,6 +132,16 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
       badgeText: string;
     }>;
   } | null>(null);
+
+  // Calling & Live Stage State (Turn Management)
+  const [callingState, setCallingState] = useState<CallingParticipantState | null>(null);
+  const [isCalled, setIsCalled] = useState<boolean>(false);
+  const [callingRemainingSeconds, setCallingRemainingSeconds] = useState<number>(30);
+  const [isStartingTurn, setIsStartingTurn] = useState<boolean>(false);
+  const [isPlayingNow, setIsPlayingNow] = useState<boolean>(false);
+  const [lyricsLines, setLyricsLines] = useState<string[]>([]);
+  const [activeLyricIndex, setActiveLyricIndex] = useState<number>(0);
+  const [showLyricsModal, setShowLyricsModal] = useState<boolean>(false);
 
   // Share Turn Modal
   const [shareModalItem, setShareModalItem] = useState<QueueItem | null>(null);
@@ -199,6 +216,15 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
     return () => clearInterval(timer);
   }, [participant]);
 
+  useEffect(() => {
+    if (lastQueueEvent) {
+      fetchQueue();
+      if (participant) {
+        fetchPlaylist(participant.id);
+      }
+    }
+  }, [lastQueueEvent, participant]);
+
   const fetchCatalog = async (q = '', g = 'Todos') => {
     try {
       setIsLoadingCatalog(true);
@@ -216,6 +242,57 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
     }
   };
 
+  const fetchLyrics = async (musicId: string) => {
+    try {
+      const res = await fetch(`/api/v1/lyrics/${musicId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success) {
+          if (Array.isArray(data.lyrics)) {
+            setLyricsLines(data.lyrics);
+          } else if (data.lyrics?.lines && Array.isArray(data.lyrics.lines)) {
+            setLyricsLines(data.lyrics.lines.map((l: any) => typeof l === 'string' ? l : l.text || ''));
+          }
+          setActiveLyricIndex(0);
+        }
+      }
+    } catch {
+      // Reconexão transitória
+    }
+  };
+
+  const handleStartTurn = async () => {
+    if (!participant) return;
+    setIsStartingTurn(true);
+    try {
+      const res = await fetch('/api/v1/participant/start-turn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participantId: participant.id,
+          queueItemId: callingState?.queueItemId
+        })
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        setIsCalled(false);
+        setIsPlayingNow(true);
+        setShowLyricsModal(true);
+        showFeedback('🎤 Show time! Apresentação iniciada na TV.', 'success');
+        fetchQueue();
+        if (callingState?.musicId) {
+          fetchLyrics(callingState.musicId);
+        }
+      } else {
+        showFeedback(data.error || 'Falha ao iniciar vez.', 'error');
+      }
+    } catch {
+      showFeedback('Erro de conexão ao iniciar apresentação.', 'error');
+    } finally {
+      setIsStartingTurn(false);
+    }
+  };
+
   const fetchQueue = async () => {
     try {
       const res = await fetch('/api/v1/queue');
@@ -223,11 +300,49 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
       const data = await res.json();
       if (data && data.success) {
         setQueue(data.queue);
+        const call = (data.callingState as CallingParticipantState | null) || null;
+        setCallingState(call);
+
+        const pId = participant?.id;
+        const called = Boolean(
+          call && pId && (call.participantId === pId || (call.isDuet && call.partnerParticipantId === pId))
+        );
+        setIsCalled(called);
+        if (called && call && typeof call.remainingSeconds === 'number') {
+          setCallingRemainingSeconds(call.remainingSeconds);
+        }
+
+        const playing = (data.playingItem as QueueItem | null) || null;
+        const userPlaying = Boolean(
+          playing && pId && (playing.participantId === pId || (playing.isDuet && playing.partnerParticipantId === pId))
+        );
+        setIsPlayingNow(userPlaying);
+        if (userPlaying && playing && lyricsLines.length === 0) {
+          fetchLyrics(playing.musicId);
+        }
       }
     } catch {
       // Reconexão transitória
     }
   };
+
+  // 1-second interval to decrement calling remaining seconds
+  useEffect(() => {
+    if (!isCalled) return;
+    const timer = setInterval(() => {
+      setCallingRemainingSeconds((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isCalled]);
+
+  // Synchronized lyrics automatic progression when on stage
+  useEffect(() => {
+    if (!isPlayingNow || lyricsLines.length === 0) return;
+    const interval = setInterval(() => {
+      setActiveLyricIndex((prev) => (prev + 1) % lyricsLines.length);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [isPlayingNow, lyricsLines.length]);
 
   const fetchPlaylist = async (pId: string) => {
     try {
@@ -727,12 +842,24 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
           <div className="absolute -bottom-24 -left-24 w-56 h-56 rounded-full bg-pink-600/10 blur-3xl pointer-events-none" />
           
           <div className="text-center mb-6 relative z-10">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600/30 to-pink-500/20 text-purple-300 mb-4 border border-purple-500/30 shadow-lg shadow-purple-900/30">
-              <Music2 className="w-8 h-8" />
-            </div>
-            <h2 className="text-2xl font-black text-white tracking-tight">Bem-vindo ao VozPlay</h2>
+            {session?.branding?.logoUrl ? (
+              <div className="flex justify-center mb-4">
+                <img
+                  src={session.branding.logoUrl}
+                  alt={session.branding.businessName || 'Logo'}
+                  className="h-14 max-w-[200px] object-contain rounded-xl p-1 bg-black/40 border border-white/10 shadow-lg"
+                />
+              </div>
+            ) : (
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600/30 to-pink-500/20 text-purple-300 mb-4 border border-purple-500/30 shadow-lg shadow-purple-900/30">
+                <Music2 className="w-8 h-8" />
+              </div>
+            )}
+            <h2 className="text-2xl font-black text-white tracking-tight">
+              {session?.branding?.businessName || session?.establishmentName || 'VozPlay Lounge'}
+            </h2>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              Lounge conectado à mesa/unidade
+              {session?.branding?.slogan || 'Lounge conectado à mesa/unidade'}
             </p>
             <div className="flex items-center justify-center gap-2 mt-2">
               <span className="text-purple-300 font-mono font-bold bg-purple-950/60 px-3 py-1 rounded-xl border border-purple-500/30 text-xs shadow-inner">
@@ -862,6 +989,60 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
         </div>
       )}
 
+      {/* PRD TURN MANAGEMENT: VOCÊ FOI CHAMADO AO PALCO (30 SEGUNDOS) */}
+      {isCalled && callingState && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96, y: -16 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          className="rounded-3xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 p-5 sm:p-7 mb-6 shadow-2xl shadow-amber-600/30 border-2 border-amber-300 ring-4 ring-amber-500/20 text-white relative overflow-hidden"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/30 border border-white/20 text-amber-200 text-xs font-black uppercase tracking-wider">
+                  <Megaphone className="w-4 h-4 text-amber-300 animate-bounce" />
+                  Sua vez chegou! Chamando ao Palco
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/40 text-white font-mono font-black text-sm border border-white/20">
+                  <Timer className="w-4 h-4 text-amber-300" />
+                  {callingRemainingSeconds}s restantes
+                </span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-display font-black tracking-tight text-white drop-shadow">
+                {callingState.musicTitle}
+              </h2>
+              <p className="text-xs sm:text-sm text-amber-100 font-semibold">
+                {callingState.musicArtist} {callingState.isDuet && callingState.partnerDisplayName ? `• Dueto com ${callingState.partnerDisplayName}` : ''}
+              </p>
+              <p className="text-xs text-amber-100/90 max-w-xl">
+                Dirija-se ao microfone! Toque no botão abaixo para confirmar sua presença e soltar o áudio e a letra sincronizada no telão.
+              </p>
+            </div>
+
+            <button
+              onClick={handleStartTurn}
+              disabled={isStartingTurn}
+              className="py-4 px-6 rounded-2xl bg-white hover:bg-amber-50 text-slate-950 font-black text-sm sm:text-base shadow-2xl transition active:scale-95 flex items-center justify-center gap-2.5 flex-shrink-0"
+            >
+              <Play className="w-5 h-5 fill-slate-950" />
+              <span>{isStartingTurn ? 'Iniciando no Telão...' : 'COMEÇAR A CANTAR AGORA'}</span>
+            </button>
+          </div>
+        </motion.div>
+      )}
+
+      {/* NOTIFICAÇÃO DE TURNO PERDIDO (1ª ou 2ª PERDA) */}
+      {myQueuedSong?.missedTurnCount !== undefined && myQueuedSong.missedTurnCount > 0 && (
+        <div className="rounded-2xl bg-amber-950/60 border border-amber-500/40 p-3.5 mb-5 flex items-center gap-3 text-xs text-amber-200">
+          <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+          <span>
+            {myQueuedSong.missedTurnCount === 1
+              ? 'Você não iniciou a apresentação na 1ª chamada de 30s. Sua música permaneceu na fila e você será chamado novamente em breve!'
+              : 'Você não respondeu a duas chamadas consecutivas. Sua música foi movida para o final da fila de espera.'}
+          </span>
+        </div>
+      )}
+
       {/* PRD Seção 43 & 49: Banner Especial - É a sua vez no Palco! */}
       {isMyTurnNow && liveSong && (
         <div className="rounded-2xl bg-gradient-to-r from-pink-600/30 via-purple-600/30 to-indigo-600/30 border-2 border-pink-500/60 p-4 mb-6 shadow-2xl relative overflow-hidden backdrop-blur-xl animate-pulse">
@@ -879,13 +1060,25 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
                 </div>
               </div>
             </div>
-            <button
-              onClick={() => onOpenTracker ? onOpenTracker(liveSong.id) : setShareModalItem(liveSong)}
-              className="px-4 py-2.5 rounded-xl bg-pink-500 hover:bg-pink-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-pink-500/30 transition active:scale-95"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span>Acompanhar & Compartilhar</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <button
+                onClick={() => {
+                  if (liveSong.musicId) fetchLyrics(liveSong.musicId);
+                  setShowLyricsModal(true);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs flex items-center justify-center gap-1.5 border border-white/20 shadow-md transition active:scale-95"
+              >
+                <Music2 className="w-3.5 h-3.5 text-pink-300" />
+                <span>Letra no Celular</span>
+              </button>
+              <button
+                onClick={() => onOpenTracker ? onOpenTracker(liveSong.id) : setShareModalItem(liveSong)}
+                className="px-4 py-2.5 rounded-xl bg-pink-500 hover:bg-pink-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-pink-500/30 transition active:scale-95"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Acompanhar & Compartilhar</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2369,6 +2562,125 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
           showFeedback(`Conectado com sucesso à ${code}!`, 'success');
         }}
       />
+
+      {/* PRD: LIVE KARAOKE LYRICS MODAL FOR MOBILE SINGER */}
+      <AnimatePresence>
+        {showLyricsModal && liveSong && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-xl"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-[#090d1a] border border-pink-500/40 w-full max-w-xl rounded-3xl p-5 sm:p-6 shadow-2xl shadow-pink-950/50 flex flex-col max-h-[92vh] overflow-hidden"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between pb-3.5 border-b border-white/10 gap-3">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/40 text-[10px] font-black uppercase tracking-wider mb-1">
+                    <Radio className="w-3 h-3 text-pink-400 animate-pulse" />
+                    <span>Ao Vivo no Palco</span>
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-display font-black text-white truncate">
+                    {liveSong.musicTitle}
+                  </h3>
+                  <div className="text-xs text-slate-400">
+                    {liveSong.musicArtist} • <span className="text-purple-300 font-semibold">{liveSong.versionStyle}</span>
+                    {liveSong.toneOffset !== undefined && liveSong.toneOffset !== 0 && (
+                      <span className="ml-2 px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold text-[10px]">
+                        Tom {liveSong.toneOffset > 0 ? `+${liveSong.toneOffset}` : liveSong.toneOffset}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowLyricsModal(false)}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition active:scale-95"
+                  title="Minimizar Letra"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Lyrics Scrolling Area */}
+              <div className="flex-1 overflow-y-auto py-6 space-y-4 text-center my-2 pr-1 select-none">
+                {lyricsLines.length === 0 ? (
+                  <div className="py-12 text-slate-500 text-xs sm:text-sm">
+                    Carregando letra sincronizada do karaokê...
+                  </div>
+                ) : (
+                  lyricsLines.map((line, idx) => {
+                    const isCurrent = idx === activeLyricIndex;
+                    const isPast = idx < activeLyricIndex;
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => setActiveLyricIndex(idx)}
+                        className={`transition-all duration-300 cursor-pointer rounded-xl px-3 py-2 ${
+                          isCurrent
+                            ? 'bg-gradient-to-r from-pink-500/20 via-purple-500/25 to-pink-500/20 border border-pink-500/40 text-white font-black text-base sm:text-xl scale-105 shadow-lg shadow-pink-500/10'
+                            : isPast
+                            ? 'text-slate-600 font-semibold text-xs sm:text-sm opacity-50'
+                            : 'text-slate-300 font-medium text-xs sm:text-sm opacity-85 hover:opacity-100'
+                        }`}
+                      >
+                        {line}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Navigation & Controls */}
+              <div className="pt-3 border-t border-white/10 flex items-center justify-between gap-2">
+                <button
+                  onClick={() => setActiveLyricIndex((prev) => Math.max(0, prev - 1))}
+                  disabled={activeLyricIndex <= 0}
+                  className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white text-xs font-bold transition"
+                >
+                  ← Linha Anterior
+                </button>
+
+                <span className="text-[11px] font-mono text-slate-400">
+                  {lyricsLines.length > 0 ? `${activeLyricIndex + 1} de ${lyricsLines.length}` : '—'}
+                </span>
+
+                <button
+                  onClick={() => setActiveLyricIndex((prev) => Math.min(lyricsLines.length - 1, prev + 1))}
+                  disabled={lyricsLines.length === 0 || activeLyricIndex >= lyricsLines.length - 1}
+                  className="px-3 py-1.5 rounded-xl bg-pink-500 hover:bg-pink-400 disabled:opacity-30 text-white text-xs font-bold transition"
+                >
+                  Próxima Linha →
+                </button>
+              </div>
+
+              {/* Quick Reactions Bar inside modal */}
+              <div className="pt-3 flex items-center justify-center gap-2">
+                {[
+                  { emoji: '👏', label: 'Aplausos' },
+                  { emoji: '🔥', label: 'Arrasou!' },
+                  { emoji: '❤️', label: 'Amei' },
+                  { emoji: '🎤', label: 'Canta Muito!' }
+                ].map((rx) => (
+                  <button
+                    key={rx.emoji}
+                    onClick={() => handleSendReaction(rx.emoji, rx.label)}
+                    className="px-2.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-pink-500/20 text-xs font-bold text-slate-200 border border-white/10 transition active:scale-95 flex items-center gap-1"
+                  >
+                    <span>{rx.emoji}</span>
+                    <span className="text-[10px]">{rx.label}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

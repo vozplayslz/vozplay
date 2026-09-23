@@ -80,12 +80,32 @@ class VozPlayWSServer {
       });
     }, 25000);
 
-    // Auto-renew presence code timer every 1 second check
+    // Auto-renew presence code timer every 1 second check & calling timeout check
     setInterval(() => {
       const code = db.getPresenceCode();
       if (code.remainingSeconds === 60) {
         // Just renewed!
         this.broadcast('presence.renewed', { code });
+      }
+
+      // Verificação autoritativa da janela de 30 segundos da chamada do participante
+      const timeoutResult = db.checkCallingTimeout();
+      if (timeoutResult && timeoutResult.expired) {
+        if (timeoutResult.missedTurnCount === 1) {
+          this.broadcast('participant.turn_missed', {
+            item: timeoutResult.item,
+            missedTurnCount: 1,
+            message: 'O tempo de 30 segundos expirou. O participante foi mantido na fila para a próxima oportunidade.'
+          });
+        } else if (timeoutResult.missedTurnCount === 2) {
+          this.broadcast('participant.turn_missed_again', {
+            item: timeoutResult.item,
+            missedTurnCount: 2,
+            message: 'Segunda perda de vez consecutiva. A música foi movida para o final da fila rotativa.'
+          });
+          this.broadcast('queue.item_requeued', { item: timeoutResult.item });
+        }
+        this.broadcastAuthoritativeState();
       }
     }, 1000);
   }
@@ -113,6 +133,26 @@ class VozPlayWSServer {
 
       case 'REQUEST_SYNC': {
         this.sendAuthoritativeState(conn);
+        break;
+      }
+
+      case 'PARTICIPANT_START_TURN': {
+        const pId = conn.participantId || msg.participantId;
+        const result = db.startTurn(pId, msg.queueItemId);
+        if (result.success && result.item) {
+          this.broadcast('participant.turn_started', { item: result.item });
+          this.broadcast('player.play', { item: result.item });
+          this.broadcastAuthoritativeState();
+        } else {
+          conn.ws.send(
+            JSON.stringify({
+              event: 'player.error',
+              sessionId: db.session.id,
+              payload: { error: result.error || 'Falha ao iniciar vez.' },
+              timestamp: new Date().toISOString()
+            })
+          );
+        }
         break;
       }
 
@@ -180,16 +220,14 @@ class VozPlayWSServer {
     db.playbackState.currentQueueItemId = null;
     db.playbackState.status = 'IDLE';
 
-    // Auto-advance to next queued item if available
-    const nextItem = db.queue.find(q => q.status === 'QUEUED');
-    if (nextItem && db.session.status === 'ACTIVE') {
-      nextItem.status = 'PLAYING';
-      nextItem.startedAt = new Date().toISOString();
-      db.playbackState.currentQueueItemId = nextItem.id;
-      db.playbackState.status = 'PLAYING';
-
-      this.broadcast('queue.playing', { item: nextItem });
-      this.broadcast('player.play', { item: nextItem });
+    // Disparar chamada de 30 segundos para o próximo participante elegível
+    if (db.session.status === 'ACTIVE') {
+      const call = db.callNextParticipant('SYSTEM', 'AutoPlayer');
+      if (call) {
+        this.broadcast('participant.turn_called', { callingState: call });
+      } else {
+        this.broadcast('queue.completed', { item: currentItem });
+      }
     } else {
       this.broadcast('queue.completed', { item: currentItem });
     }
@@ -221,6 +259,7 @@ class VozPlayWSServer {
             session: db.session,
             queue: db.queue,
             playbackState: db.playbackState,
+            callingState: db.callingState,
             presenceCode: conn.role === 'CONTROLLER' || conn.role === 'SUPERVISOR' ? db.getPresenceCode() : undefined,
             participantsCount: db.participants.size,
             tvConnected: db.tvConnected,
