@@ -20,7 +20,8 @@ import {
   Radio,
   ExternalLink,
   Bell,
-  AlertCircle
+  AlertCircle,
+  Users
 } from 'lucide-react';
 
 interface TurnTrackerProps {
@@ -32,6 +33,8 @@ interface TurnTrackerProps {
 interface ShareData {
   id: string;
   participantDisplayName: string;
+  partnerDisplayName?: string;
+  isDuet?: boolean;
   musicTitle: string;
   musicArtist: string;
   versionStyle: string;
@@ -80,10 +83,21 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
 
   const handleShareWhatsApp = () => {
     if (!data) return;
-    const text = encodeURIComponent(
-      `🎤 Acompanhe a vez de ${data.participantDisplayName} cantar "${data.musicTitle}" no ${data.establishmentName}: https://vozplay.ai.slz.br/v/${data.id}`
-    );
-    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+    const shareText = `🎤 Acompanhe a vez de ${data.participantDisplayName} cantar "${data.musicTitle}" no ${data.establishmentName}: https://vozplay.ai.slz.br/v/${data.id}`;
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      navigator.share({
+        title: `VozPlay - ${data.musicTitle}`,
+        text: shareText,
+        url: `https://vozplay.ai.slz.br/v/${data.id}`
+      }).catch(() => {});
+      return;
+    }
+    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`;
+    const anchor = document.createElement('a');
+    anchor.href = whatsappUrl;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.click();
   };
 
   const handleCopyLink = () => {
@@ -228,11 +242,23 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
 
         {/* Singer Name */}
         <div className="text-[11px] uppercase tracking-widest text-slate-400 font-bold mb-1">
-          Cantor(a) da Apresentação
+          {data.isDuet && data.partnerDisplayName ? 'Dupla da Apresentação' : 'Cantor(a) da Apresentação'}
         </div>
         <h2 className="text-2xl sm:text-3xl font-display font-black text-white tracking-tight">
           {data.participantDisplayName}
+          {data.isDuet && data.partnerDisplayName && (
+            <span className="text-pink-300"> & {data.partnerDisplayName}</span>
+          )}
         </h2>
+
+        {data.isDuet && data.partnerDisplayName && (
+          <div className="mt-2 flex justify-center">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-pink-500/20 text-pink-300 border border-pink-500/40 shadow-sm">
+              <Users className="w-3.5 h-3.5 text-pink-400" />
+              Apresentação em Dupla (Dueto)
+            </span>
+          </div>
+        )}
 
         {/* Song Info Card */}
         <div className="mt-5 p-4 rounded-2xl bg-[#080c16]/80 border border-white/[0.08] backdrop-blur-md space-y-1.5 shadow-inner">

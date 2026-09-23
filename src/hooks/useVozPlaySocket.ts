@@ -25,11 +25,44 @@ export function useVozPlaySocket({
   const [isConnected, setIsConnected] = useState(false);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [lastMessage, setLastMessage] = useState<WSMessage | null>(null);
+
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const onEventRef = useRef(onEvent);
+  const roleRef = useRef(role);
+  const sessionIdRef = useRef(sessionId);
+  const participantIdRef = useRef(participantId);
+
+  // Manter refs sincronizadas
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
+
+  useEffect(() => {
+    roleRef.current = role;
+    sessionIdRef.current = sessionId;
+    participantIdRef.current = participantId;
+
+    // Se o socket já estiver aberto e o perfil mudar (ex: troca de abas), re-registra imediatamente sem derrubar a conexão
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: 'REGISTER_CLIENT',
+          role,
+          sessionId: sessionId || 'sess-slz-01',
+          participantId
+        })
+      );
+    }
+  }, [role, sessionId, participantId]);
 
   const connect = useCallback(() => {
-    if (socketRef.current && (socketRef.current.readyState === WebSocket.OPEN || socketRef.current.readyState === WebSocket.CONNECTING)) {
+    if (
+      socketRef.current &&
+      (socketRef.current.readyState === WebSocket.OPEN ||
+        socketRef.current.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
 
@@ -42,15 +75,16 @@ export function useVozPlaySocket({
 
       ws.onopen = () => {
         setIsConnected(true);
+        reconnectAttemptRef.current = 0;
         setReconnectAttempt(0);
 
-        // Register client role and identity with the server
+        // Registra papel e sessão atuais
         ws.send(
           JSON.stringify({
             type: 'REGISTER_CLIENT',
-            role,
-            sessionId: sessionId || 'sess-slz-01',
-            participantId
+            role: roleRef.current,
+            sessionId: sessionIdRef.current || 'sess-slz-01',
+            participantId: participantIdRef.current
           })
         );
       };
@@ -59,8 +93,8 @@ export function useVozPlaySocket({
         try {
           const data: WSMessage = JSON.parse(event.data);
           setLastMessage(data);
-          if (onEvent) {
-            onEvent(data.event, data.payload);
+          if (onEventRef.current) {
+            onEventRef.current(data.event, data.payload);
           }
         } catch (err) {
           console.error('[VozPlay Socket] Erro ao processar mensagem:', err);
@@ -71,10 +105,13 @@ export function useVozPlaySocket({
         setIsConnected(false);
         socketRef.current = null;
 
-        // Schedule resilient reconnection
-        const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempt), 10000);
+        // Reconexão resiliente com backoff exponencial
+        const attempt = reconnectAttemptRef.current;
+        const delay = Math.min(1000 * Math.pow(1.5, attempt), 10000);
+        reconnectAttemptRef.current += 1;
+        setReconnectAttempt(reconnectAttemptRef.current);
+
         reconnectTimeoutRef.current = setTimeout(() => {
-          setReconnectAttempt((prev) => prev + 1);
           connect();
         }, delay);
       };
@@ -86,7 +123,7 @@ export function useVozPlaySocket({
     } catch (err) {
       console.error('[VozPlay Socket] Falha ao criar WebSocket:', err);
     }
-  }, [role, sessionId, participantId, reconnectAttempt, onEvent]);
+  }, []);
 
   useEffect(() => {
     connect();

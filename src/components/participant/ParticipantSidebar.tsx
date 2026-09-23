@@ -21,7 +21,8 @@ import {
   Plus,
   Share2,
   Heart,
-  Sparkles
+  Sparkles,
+  QrCode
 } from 'lucide-react';
 import { Participant, QueueItem } from '../../types.js';
 
@@ -48,6 +49,8 @@ interface ParticipantSidebarProps {
   presenceSuccess: string;
   onOpenTracker?: (id: string) => void;
   onRequestCustomSong?: () => void;
+  sessionCode?: string;
+  onOpenQRScanner?: () => void;
 }
 
 const REACTION_BUTTONS = [
@@ -79,7 +82,9 @@ export const ParticipantSidebar: React.FC<ParticipantSidebarProps> = ({
   presenceError,
   presenceSuccess,
   onOpenTracker,
-  onRequestCustomSong
+  onRequestCustomSong,
+  sessionCode,
+  onOpenQRScanner
 }) => {
   return (
     <aside className="w-full lg:w-72 xl:w-80 flex-shrink-0 space-y-4">
@@ -121,6 +126,23 @@ export const ParticipantSidebar: React.FC<ParticipantSidebarProps> = ({
             <p className="text-[10px] text-slate-400 font-mono truncate mt-1">
               {participant.whatsapp ? `WhatsApp: ${participant.whatsapp}` : 'Convidado da Mesa'}
             </p>
+
+            <div className="flex items-center justify-between gap-1 mt-2 pt-2 border-t border-white/[0.08]">
+              <span className="text-[10px] text-slate-400">
+                Mesa: <strong className="text-purple-300 font-mono">{sessionCode || 'SLZ-704'}</strong>
+              </span>
+              {onOpenQRScanner && (
+                <button
+                  type="button"
+                  onClick={onOpenQRScanner}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-pink-300 hover:text-pink-200 transition bg-pink-500/10 hover:bg-pink-500/20 px-2 py-0.5 rounded-lg border border-pink-500/20 active:scale-95"
+                  title="Escanear QR Code da mesa ou telão"
+                >
+                  <QrCode className="w-3 h-3 text-pink-400" />
+                  Trocar Mesa
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

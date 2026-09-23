@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Tv, Music2, Radio, AlertTriangle, QrCode, Sparkles, CheckCircle2, Mic2, Flame } from 'lucide-react';
+import { Tv, Music2, Radio, AlertTriangle, QrCode, Sparkles, CheckCircle2, Mic2, Flame, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TVSessionDTO } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
@@ -33,6 +33,8 @@ interface FloatingReaction {
 interface QueueHighlightNotice {
   id: string;
   participantDisplayName: string;
+  partnerDisplayName?: string;
+  isDuet?: boolean;
   title: string;
   artist: string;
   versionStyle: string;
@@ -65,6 +67,7 @@ export const TVView: React.FC<TVViewProps> = ({
 
   const [completedPerformance, setCompletedPerformance] = useState<{
     singer: string;
+    isDuet?: boolean;
     title: string;
     artist: string;
     score: number;
@@ -74,6 +77,14 @@ export const TVView: React.FC<TVViewProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const getSingerDisplayName = (item?: { participantDisplayName?: string; partnerDisplayName?: string; isDuet?: boolean } | null) => {
+    if (!item) return '';
+    if (item.isDuet && item.partnerDisplayName) {
+      return `${item.participantDisplayName} & ${item.partnerDisplayName}`;
+    }
+    return item.participantDisplayName || '';
+  };
 
   // Handle incoming audience reactions
   useEffect(() => {
@@ -175,20 +186,28 @@ export const TVView: React.FC<TVViewProps> = ({
     if (isTransitioning) return;
     const current = tvData?.currentSong;
     if (current) {
-      const generatedScore = Math.floor(90 + Math.random() * 10);
-      const badges = [
+      const generatedScore = Math.floor(92 + Math.random() * 8);
+      const soloBadges = [
         'VOZ DE OURO ⭐⭐⭐⭐⭐',
         'SHOW DE CARISMA 🔥🔥🔥',
         'AFINAÇÃO IMPECÁVEL 🎤✨',
         'ESTRELA DO LOUNGE 🌟👑'
       ];
+      const duetBadges = [
+        'DUPLA DE OURO 🎤🎤⭐⭐⭐⭐⭐',
+        'SINTONIA PERFEITA 🔥🔥🔥',
+        'HARMONIA IMPECÁVEL 🎶✨',
+        'SUPER DUETO DO LOUNGE 🌟👑'
+      ];
+      const badges = current.isDuet ? duetBadges : soloBadges;
       setCompletedPerformance({
-        singer: current.participantDisplayName,
+        singer: getSingerDisplayName(current),
+        isDuet: current.isDuet,
         title: current.title,
         artist: current.artist,
         score: generatedScore,
         badge: badges[Math.floor(Math.random() * badges.length)],
-        applauseCount: Math.max(15, reactions.length * 3 + Math.floor(Math.random() * 30))
+        applauseCount: Math.max(18, reactions.length * 3 + Math.floor(Math.random() * 32))
       });
       // Trigger soundboard applause effect automatically
       try {
@@ -223,6 +242,8 @@ export const TVView: React.FC<TVViewProps> = ({
       artist: string;
       versionStyle: any;
       participantDisplayName: string;
+      partnerDisplayName?: string;
+      isDuet?: boolean;
       toneOffset?: number;
     },
     isNext: boolean,
@@ -231,6 +252,8 @@ export const TVView: React.FC<TVViewProps> = ({
     setQueueHighlightNotice({
       id: `${item.id}-${Date.now()}`,
       participantDisplayName: item.participantDisplayName,
+      partnerDisplayName: item.partnerDisplayName,
+      isDuet: item.isDuet,
       title: item.title,
       artist: item.artist,
       versionStyle: item.versionStyle,
@@ -413,10 +436,14 @@ export const TVView: React.FC<TVViewProps> = ({
           {completedPerformance && (
             <div className="space-y-3 mb-6">
               <h2 className="text-2xl sm:text-4xl md:text-5xl font-display font-black text-white tracking-tight">
-                Parabéns, <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-pink-400 to-purple-400">{completedPerformance.singer}</span>!
+                {completedPerformance.isDuet ? 'Parabéns à Dupla, ' : 'Parabéns, '}
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-pink-400 to-purple-400">
+                  {completedPerformance.singer}
+                </span>!
               </h2>
               <p className="text-sm sm:text-lg text-slate-300">
-                Você cantou: <strong className="text-white font-semibold">{completedPerformance.title}</strong> — <span className="text-purple-300">{completedPerformance.artist}</span>
+                {completedPerformance.isDuet ? 'Vocês cantaram: ' : 'Você cantou: '}
+                <strong className="text-white font-semibold">{completedPerformance.title}</strong> — <span className="text-purple-300">{completedPerformance.artist}</span>
               </p>
 
               {/* Pontuação & Aplausômetro */}
@@ -443,7 +470,7 @@ export const TVView: React.FC<TVViewProps> = ({
                 Prepare seu Microfone:
               </span>
               <h3 className="text-xl sm:text-3xl font-display font-black text-white">
-                {nextSong.participantDisplayName}
+                {getSingerDisplayName(nextSong)}
               </h3>
               <p className="text-sm sm:text-base text-slate-300">
                 {nextSong.title} — <span className="text-purple-300 font-semibold">{nextSong.artist}</span>
@@ -476,8 +503,16 @@ export const TVView: React.FC<TVViewProps> = ({
                   <span>No Palco Agora</span>
                 </div>
                 <h2 className="text-2xl sm:text-4xl md:text-5xl font-display font-black text-white tracking-tight drop-shadow-md">
-                  {currentSong.participantDisplayName}
+                  {getSingerDisplayName(currentSong)}
                 </h2>
+                {currentSong.isDuet && currentSong.partnerDisplayName && (
+                  <div className="flex justify-center mt-1">
+                    <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold bg-pink-500/25 border border-pink-500/40 text-pink-300 shadow-md">
+                      <Users className="w-3.5 h-3.5 text-pink-400" />
+                      Apresentação em Dupla (Dueto)
+                    </span>
+                  </div>
+                )}
                 <div className="text-base sm:text-2xl text-slate-200 font-bold">
                   {currentSong.title} — <span className="text-purple-300">{currentSong.artist}</span>
                 </div>
@@ -572,7 +607,7 @@ export const TVView: React.FC<TVViewProps> = ({
                           )}
                         </div>
                         <span className="text-base font-display font-black text-white block mt-0.5">
-                          {nextSong.participantDisplayName}
+                          {getSingerDisplayName(nextSong)}
                         </span>
                         <span className="text-xs text-slate-300 font-medium">
                           {nextSong.title} • <span className="text-purple-300">{nextSong.artist}</span>
@@ -654,7 +689,7 @@ export const TVView: React.FC<TVViewProps> = ({
                   className="flex items-center gap-2 truncate"
                 >
                   <span className="text-xs sm:text-sm font-bold text-white truncate">
-                    {nextSong.participantDisplayName}
+                    {getSingerDisplayName(nextSong)}
                   </span>
                   <span className="text-xs text-purple-300 font-medium truncate">
                     • {nextSong.title}
@@ -694,7 +729,7 @@ export const TVView: React.FC<TVViewProps> = ({
                     className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1.5 shadow-sm whitespace-nowrap"
                   >
                     <span className="text-pink-400 font-mono font-bold text-[10px]">{idx + 3}º</span>
-                    <span className="text-white font-medium">{q.participantDisplayName}</span>
+                    <span className="text-white font-medium">{getSingerDisplayName(q)}</span>
                     <span className="text-slate-400 text-[11px]">({q.title})</span>
                   </motion.span>
                 ))}
@@ -746,7 +781,7 @@ export const TVView: React.FC<TVViewProps> = ({
                     <span className="text-[10px] font-mono text-slate-400">Tempo Real</span>
                   </div>
                   <h4 className="text-lg sm:text-xl font-display font-black text-white truncate tracking-tight">
-                    {queueHighlightNotice.participantDisplayName}
+                    {getSingerDisplayName(queueHighlightNotice)}
                   </h4>
                   <p className="text-xs sm:text-sm text-slate-200 truncate font-medium mt-0.5">
                     {queueHighlightNotice.title} <span className="text-purple-300 font-semibold">• {queueHighlightNotice.artist}</span>

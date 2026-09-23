@@ -354,9 +354,13 @@ apiRouter.post('/music/custom-request', (req, res) => {
 // ==========================================
 // 3.1 RECOMENDAÇÕES COM GEMINI AI (/api/v1/recommendations)
 // ==========================================
-apiRouter.post('/recommendations/genre', async (req, res) => {
+const handleGenreRecommendation = async (
+  genre: string | undefined,
+  mood: string | undefined,
+  participantName: string | undefined,
+  res: any
+) => {
   try {
-    const { genre, mood, participantName } = req.body;
     if (!genre || typeof genre !== 'string') {
       return res.status(400).json({ error: 'Gênero musical é obrigatório.' });
     }
@@ -381,6 +385,18 @@ apiRouter.post('/recommendations/genre', async (req, res) => {
       error: 'Falha ao gerar recomendações de playlist. Tente novamente em instantes.'
     });
   }
+};
+
+apiRouter.post('/recommendations/genre', async (req, res) => {
+  const { genre, mood, participantName } = req.body;
+  await handleGenreRecommendation(genre, mood, participantName, res);
+});
+
+apiRouter.get('/recommendations/genre', async (req, res) => {
+  const genre = req.query.genre as string | undefined;
+  const mood = req.query.mood as string | undefined;
+  const participantName = req.query.participantName as string | undefined;
+  await handleGenreRecommendation(genre, mood, participantName, res);
 });
 
 
@@ -563,7 +579,7 @@ apiRouter.get('/queue', (req, res) => {
 });
 
 apiRouter.post('/queue/add', (req, res) => {
-  const { participantId, musicId, versionId, playlistItemId, toneOffset } = req.body;
+  const { participantId, musicId, versionId, playlistItemId, toneOffset, isDuet, partnerDisplayName, partnerParticipantId } = req.body;
 
   if (db.session.status !== 'ACTIVE') {
     return res.status(400).json({ error: 'A sessão não está ativa para novas músicas no momento.' });
@@ -597,7 +613,17 @@ apiRouter.post('/queue/add', (req, res) => {
 
   const version = music.versions.find(v => v.id === versionId) || music.versions[0];
 
-  const queueItem = db.addSongToQueue(participant, music, version, Number(toneOffset) || 0);
+  const queueItem = db.addSongToQueue(
+    participant,
+    music,
+    version,
+    Number(toneOffset) || 0,
+    {
+      isDuet: Boolean(isDuet),
+      partnerDisplayName: typeof partnerDisplayName === 'string' ? partnerDisplayName : undefined,
+      partnerParticipantId: typeof partnerParticipantId === 'string' ? partnerParticipantId : undefined
+    }
+  );
 
   // If added from personal playlist, update playlist status
   if (playlistItemId) {
@@ -614,6 +640,109 @@ apiRouter.post('/queue/add', (req, res) => {
     success: true,
     queueItem,
     message: `Música "${music.title}" adicionada com sucesso na fila rotativa!`
+  });
+});
+
+apiRouter.post('/queue/request', (req, res) => {
+  const {
+    musicTitle,
+    musicArtist,
+    participantDisplayName,
+    participantPhone,
+    versionStyle,
+    toneOffset,
+    isDuet,
+    partnerDisplayName,
+    youtubeVideoId
+  } = req.body;
+
+  if (db.session.status !== 'ACTIVE') {
+    return res.status(400).json({ error: 'A sessão não está ativa para novas músicas no momento.' });
+  }
+
+  if (!musicTitle || !musicTitle.trim()) {
+    return res.status(400).json({ error: 'Título da música é obrigatório.' });
+  }
+
+  const singerName = (participantDisplayName || '').trim() || 'Cantor(a) Convidado';
+
+  // Find or create participant on-demand for the desk
+  let participant = Array.from(db.participants.values()).find(
+    p => p.displayName.toLowerCase() === singerName.toLowerCase()
+  );
+
+  if (!participant) {
+    const newId = 'p-desk-' + Date.now();
+    participant = {
+      id: newId,
+      sessionId: db.session.id,
+      displayName: singerName,
+      whatsapp: participantPhone || undefined,
+      isVerified: true,
+      identityId: 'id-' + Date.now(),
+      joinedAt: new Date().toISOString(),
+      verifiedAt: new Date().toISOString()
+    };
+    db.participants.set(newId, participant);
+  } else {
+    participant.isVerified = true;
+  }
+
+  // Find existing music or create custom entry
+  let music = db.catalog.find(
+    m => m.title.toLowerCase() === musicTitle.trim().toLowerCase()
+  );
+
+  let version: any;
+  if (!music) {
+    const musicId = 'm-' + Date.now();
+    const versionId = 'v-' + Date.now();
+    let cleanYt = (youtubeVideoId || '').trim();
+    if (!cleanYt) {
+      cleanYt = 'wYV_ZJ2U-t4'; // default fallback instrumental backing track
+    }
+    music = {
+      id: musicId,
+      title: musicTitle.trim(),
+      artist: (musicArtist || '').trim() || 'Artista Convidado',
+      genre: 'Variados',
+      coverUrl: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=120&q=80',
+      versions: [
+        {
+          id: versionId,
+          musicId,
+          style: (versionStyle as any) || 'karaoke',
+          label: `${versionStyle || 'Karaokê'} HD Especial`,
+          youtubeVideoId: cleanYt,
+          durationSec: 220,
+          quality: '1080p'
+        }
+      ]
+    };
+    db.catalog.push(music);
+    version = music.versions[0];
+  } else {
+    version = music.versions.find(v => v.style.toLowerCase() === (versionStyle || 'karaoke').toLowerCase()) || music.versions[0];
+  }
+
+  const queueItem = db.addSongToQueue(
+    participant,
+    music,
+    version,
+    Number(toneOffset) || 0,
+    {
+      isDuet: Boolean(isDuet),
+      partnerDisplayName: typeof partnerDisplayName === 'string' ? partnerDisplayName : undefined
+    }
+  );
+
+  wsServer.broadcast('queue.added', { item: queueItem });
+  wsServer.broadcastAuthoritativeState();
+
+  res.json({
+    success: true,
+    queueItem,
+    message: `Música "${music.title}" adicionada com sucesso na fila pelo operador!`
   });
 });
 
@@ -690,6 +819,8 @@ apiRouter.get('/queue/share/:queueItemId', (req, res) => {
     data: {
       id: item.id,
       participantDisplayName: item.participantDisplayName,
+      partnerDisplayName: item.partnerDisplayName,
+      isDuet: item.isDuet,
       musicTitle: item.musicTitle,
       musicArtist: item.musicArtist,
       versionStyle: item.versionStyle,

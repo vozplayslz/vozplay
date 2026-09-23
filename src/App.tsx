@@ -43,6 +43,15 @@ export default function App() {
     return 'PARTICIPANT';
   });
 
+  const [sessionCode, setSessionCode] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const s = params.get('s') || params.get('table') || params.get('mesa');
+      if (s) return s.toUpperCase();
+    }
+    return 'SLZ-704';
+  });
+
   const [session, setSession] = useState<Session | null>(null);
   const [tvConnected, setTvConnected] = useState(false);
   const [lastReaction, setLastReaction] = useState<any>(null);
@@ -179,7 +188,7 @@ export default function App() {
         <main className="flex-1 relative">
           {activeTab === 'PARTICIPANT' && (
             <ParticipantView
-              sessionCode={session?.code || 'SLZ-704'}
+              sessionCode={sessionCode || session?.code || 'SLZ-704'}
               lastSoundboard={lastSoundboard}
               onOpenTracker={(id) => {
                 setTrackerItemId(id);

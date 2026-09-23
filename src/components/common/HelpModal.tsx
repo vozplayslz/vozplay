@@ -31,7 +31,9 @@ import {
   KeyRound,
   Sparkles,
   Heart,
-  Headphones
+  Headphones,
+  Users,
+  Camera
 } from 'lucide-react';
 
 interface HelpModalProps {
@@ -236,6 +238,24 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                       Para evitar desistências ou ficar pulando músicas no palco, toque no ícone de <strong>fones de ouvido 🎧</strong> ou em <strong>Ouvir Prévia</strong> no modal da música. O áudio e vídeo tocam exclusivamente no seu celular (fones ou alto-falante), permitindo que você confira a introdução, o tom e a versão antes de enviar para o telão da TV.
                     </p>
                   </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-pink-500/30 space-y-2">
+                    <div className="flex items-center gap-2 text-pink-300 font-bold text-xs uppercase tracking-wider">
+                      <Users className="w-4 h-4 text-pink-400" /> 8. Apresentação em Dupla (Dueto)
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Vai cantar com um amigo? No modal de escolha, marque <strong>Cantar em Dupla</strong> e digite o nome do(a) parceiro(a). A TV exibe a dupla no telão e a cabine de som do operador recebe o aviso antecipado para disponibilizar <strong>2 microfones ativos</strong> no palco.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-purple-500/30 space-y-2">
+                    <div className="flex items-center gap-2 text-purple-300 font-bold text-xs uppercase tracking-wider">
+                      <Camera className="w-4 h-4 text-purple-400" /> 9. Leitor de QR Code Integrado
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Mudou de mesa ou quer se conectar ao telão do lounge? Toque no botão <strong>Escanear Mesa</strong> no login ou no seu passe VIP para abrir o scanner com câmera ao vivo, suporte a lanterna noturna e atalhos rápidos com 1 toque.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 to-pink-950/40 border border-purple-500/30 space-y-2">
@@ -294,6 +314,16 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                       - <strong>Disparo Geral (Broadcast):</strong> Transmite instantaneamente para a TV do lounge e para todos os celulares dos participantes conectados.<br />
                       - <strong>Pré-escuta no Fone:</strong> O ícone de fone permite ouvir o efeito apenas na mesa/fone de ouvido sem tocar no salão.<br />
                       - <strong>Atalhos de Teclado:</strong> Use as teclas numéricas <code className="text-pink-300 font-mono font-bold">[1]</code> a <code className="text-pink-300 font-mono font-bold">[9]</code> e <code className="text-pink-300 font-mono font-bold">[0]</code> para disparos imediatos com apenas uma mão na mesa.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-white/[0.07] space-y-2">
+                    <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                      <Mic className="w-4 h-4" /> Inserção Manual de Balcão & Transposição de Tom
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      - <strong>Inserir Pedido na Fila:</strong> Atenda clientes no balcão inserindo música, artista e nome do cantor diretamente pela aba <em>Inserir Pedido</em>, definindo versão de estúdio, tom vocal de -3 a +3 e se a apresentação será em dupla.<br />
+                      - <strong>Ajuste de Tom em Tempo Real:</strong> Durante a reprodução no palco ou na lista de espera, use os botões <code className="text-amber-300 font-mono font-bold">[-1]</code> e <code className="text-amber-300 font-mono font-bold">[+1]</code> para calibrar a tonalidade perfeitamente para o cantor sem interrupções.
                     </p>
                   </div>
                 </div>

@@ -736,7 +736,13 @@ class VozPlayDB {
    * João: A, B, C | Maria: D, E | Pedro: F
    * Resultado na Fila: João A, Maria D, Pedro F, João B, Maria E, João C
    */
-  public addSongToQueue(participant: Participant, music: Music, version: any, toneOffset: number = 0): QueueItem {
+  public addSongToQueue(
+    participant: Participant,
+    music: Music,
+    version: any,
+    toneOffset: number = 0,
+    duetOptions?: { isDuet?: boolean; partnerDisplayName?: string; partnerParticipantId?: string }
+  ): QueueItem {
     // Quantas músicas este participante já tem com status QUEUED
     const participantQueuedCount = this.queue.filter(
       item => item.participantId === participant.id && item.status === 'QUEUED'
@@ -750,6 +756,9 @@ class VozPlayDB {
       sessionId: this.session.id,
       participantId: participant.id,
       participantDisplayName: participant.displayName,
+      partnerParticipantId: duetOptions?.partnerParticipantId,
+      partnerDisplayName: duetOptions?.partnerDisplayName?.trim() || undefined,
+      isDuet: Boolean(duetOptions?.isDuet && duetOptions?.partnerDisplayName?.trim()),
       musicId: music.id,
       musicTitle: music.title,
       musicArtist: music.artist,
@@ -823,6 +832,8 @@ class VozPlayDB {
         artist: item.musicArtist,
         versionStyle: item.versionStyle,
         participantDisplayName: item.participantDisplayName,
+        partnerDisplayName: item.partnerDisplayName,
+        isDuet: item.isDuet,
         toneOffset: item.toneOffset
       }));
 
@@ -866,6 +877,8 @@ class VozPlayDB {
             versionStyle: currentQueueItem.versionStyle,
             youtubeVideoId: currentQueueItem.youtubeVideoId,
             participantDisplayName: currentQueueItem.participantDisplayName,
+            partnerDisplayName: currentQueueItem.partnerDisplayName,
+            isDuet: currentQueueItem.isDuet,
             toneOffset: currentQueueItem.toneOffset
           }
         : null,

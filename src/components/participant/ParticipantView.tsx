@@ -32,13 +32,16 @@ import {
   VolumeX,
   BellRing,
   Heart,
-  Headphones
+  Headphones,
+  Users,
+  QrCode
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Participant, Music, QueueItem, PlaylistItem, MusicVersion, WishlistItem } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
 import { ParticipantSidebar, ParticipantSubTab } from './ParticipantSidebar.js';
 import { RecommendedPlaylistView } from './RecommendedPlaylistView.js';
+import { QRScannerModal } from './QRScannerModal.js';
 
 interface ParticipantViewProps {
   sessionCode?: string;
@@ -56,6 +59,10 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
   // Mobile Sound Effects state (PRD Section 47)
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [activeSoundAlert, setActiveSoundAlert] = useState<{ soundType: string; label: string } | null>(null);
+
+  // QR Code Scanner State
+  const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
+  const [currentSessionCode, setCurrentSessionCode] = useState(sessionCode);
 
   // Participant Identity State
   const [participant, setParticipant] = useState<Participant | null>(null);
@@ -95,6 +102,8 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
   const [selectedVersion, setSelectedVersion] = useState<MusicVersion | null>(null);
   const [selectedToneOffset, setSelectedToneOffset] = useState<number>(0);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState<boolean>(false);
+  const [isDuetSelected, setIsDuetSelected] = useState<boolean>(false);
+  const [duetPartnerName, setDuetPartnerName] = useState<string>('');
 
   // Personal Playlist & Queue
   const [playlist, setPlaylist] = useState<PlaylistItem[]>([]);
@@ -535,7 +544,9 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
           musicId: music.id,
           versionId: version.id,
           playlistItemId,
-          toneOffset: selectedToneOffset
+          toneOffset: selectedToneOffset,
+          isDuet: Boolean(isDuetSelected && duetPartnerName.trim()),
+          partnerDisplayName: isDuetSelected ? duetPartnerName.trim() : undefined
         })
       });
 
@@ -547,6 +558,8 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
 
       setSelectedMusic(null);
       setSelectedToneOffset(0);
+      setIsDuetSelected(false);
+      setDuetPartnerName('');
       setIsPreviewPlaying(false);
       fetchQueue();
       fetchPlaylist(participant.id);
@@ -719,8 +732,21 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
             </div>
             <h2 className="text-2xl font-black text-white tracking-tight">Bem-vindo ao VozPlay</h2>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">
-              Lounge conectado à mesa/unidade <span className="text-purple-300 font-mono font-bold bg-purple-950/60 px-2 py-0.5 rounded-md border border-purple-500/30">{sessionCode}</span>
+              Lounge conectado à mesa/unidade
             </p>
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <span className="text-purple-300 font-mono font-bold bg-purple-950/60 px-3 py-1 rounded-xl border border-purple-500/30 text-xs shadow-inner">
+                {currentSessionCode}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsQRScannerOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-pink-500/20 hover:bg-pink-500/30 border border-pink-500/40 text-pink-300 text-xs font-bold transition active:scale-95 shadow-sm"
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                Escanear Mesa
+              </button>
+            </div>
           </div>
 
           <form onSubmit={handleRegister} className="space-y-4 relative z-10">
@@ -794,6 +820,17 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
             </span>
           </div>
         </div>
+
+        {/* QR Code Scanner Modal for Unregistered Visitor */}
+        <QRScannerModal
+          isOpen={isQRScannerOpen}
+          onClose={() => setIsQRScannerOpen(false)}
+          currentCode={currentSessionCode}
+          onScanSuccess={(code) => {
+            setCurrentSessionCode(code);
+            showFeedback(`Conectado à mesa ${code}!`, 'success');
+          }}
+        />
       </div>
     );
   }
@@ -876,6 +913,8 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
           presenceSuccess={presenceSuccess}
           onOpenTracker={onOpenTracker}
           onRequestCustomSong={() => setShowCustomModal(true)}
+          sessionCode={currentSessionCode}
+          onOpenQRScanner={() => setIsQRScannerOpen(true)}
         />
 
         {/* Dynamic Workspace Container */}
@@ -1611,8 +1650,15 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-slate-400 truncate mt-0.5">
-                          {item.musicArtist} • Cantado por: <span className="text-slate-200 font-bold">{item.participantDisplayName}</span>
+                        <p className="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1 flex-wrap">
+                          <span>{item.musicArtist} • Cantado por:</span>
+                          <span className="text-slate-200 font-bold">{item.participantDisplayName}</span>
+                          {item.isDuet && item.partnerDisplayName && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                              <Users className="w-3 h-3 text-pink-400" />
+                              & {item.partnerDisplayName}
+                            </span>
+                          )}
                         </p>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <span className="text-[10px] text-slate-500">
@@ -1973,6 +2019,46 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
               </div>
             </div>
 
+            {/* PRD: Cantar em Dupla (Dueto) */}
+            <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setIsDuetSelected(!isDuetSelected)}
+                  className="flex items-center gap-2 text-xs font-bold text-slate-200 hover:text-white transition"
+                >
+                  <div className={`w-4 h-4 rounded border flex items-center justify-center transition ${
+                    isDuetSelected ? 'bg-pink-500 border-pink-400 text-white' : 'bg-white/5 border-white/20'
+                  }`}>
+                    {isDuetSelected && <CheckCircle2 className="w-3.5 h-3.5" />}
+                  </div>
+                  <span className="flex items-center gap-1.5 text-pink-300">
+                    <Users className="w-3.5 h-3.5" />
+                    Cantar em Dupla (Dueto com Amigo)
+                  </span>
+                </button>
+                <span className="text-[10px] text-slate-400">2 microfones no palco</span>
+              </div>
+
+              {isDuetSelected && (
+                <div className="space-y-1 pt-1 animate-in fade-in duration-200">
+                  <label className="text-[11px] text-slate-300 font-semibold block">
+                    Nome do(a) parceiro(a) de palco:
+                  </label>
+                  <input
+                    type="text"
+                    value={duetPartnerName}
+                    onChange={(e) => setDuetPartnerName(e.target.value)}
+                    placeholder="Ex: Mariana, Carlos..."
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-pink-500/40 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-pink-500"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    O nome aparecerá no telão da TV e na cabine de som do operador.
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-3 relative z-10">
               <button
                 onClick={() => selectedVersion && handleAddToQueue(selectedMusic, selectedVersion)}
@@ -2018,6 +2104,8 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
             <button
               onClick={() => {
                 setSelectedMusic(null);
+                setIsDuetSelected(false);
+                setDuetPartnerName('');
                 setIsPreviewPlaying(false);
               }}
               className="mt-4 w-full py-2.5 text-xs font-semibold text-slate-400 hover:text-white transition"
@@ -2049,10 +2137,21 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
             <div className="space-y-2">
               <button
                 onClick={() => {
-                  const text = encodeURIComponent(
-                    `🎤 Vou cantar "${shareModalItem.musicTitle}" no VozPlay! Acompanhe minha vez em tempo real: https://vozplay.ai.slz.br/v/${shareModalItem.id}`
-                  );
-                  window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+                  const shareText = `🎤 Vou cantar "${shareModalItem.musicTitle}" no VozPlay! Acompanhe minha vez em tempo real: https://vozplay.ai.slz.br/v/${shareModalItem.id}`;
+                  if (typeof navigator !== 'undefined' && navigator.share) {
+                    navigator.share({
+                      title: `VozPlay - ${shareModalItem.musicTitle}`,
+                      text: shareText,
+                      url: `https://vozplay.ai.slz.br/v/${shareModalItem.id}`
+                    }).catch(() => {});
+                    return;
+                  }
+                  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`;
+                  const anchor = document.createElement('a');
+                  anchor.href = whatsappUrl;
+                  anchor.target = '_blank';
+                  anchor.rel = 'noopener noreferrer';
+                  anchor.click();
                 }}
                 className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition flex items-center justify-center gap-2"
               >
@@ -2259,6 +2358,17 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* QR Code Scanner Modal */}
+      <QRScannerModal
+        isOpen={isQRScannerOpen}
+        onClose={() => setIsQRScannerOpen(false)}
+        currentCode={currentSessionCode}
+        onScanSuccess={(code) => {
+          setCurrentSessionCode(code);
+          showFeedback(`Conectado com sucesso à ${code}!`, 'success');
+        }}
+      />
     </div>
   );
 };

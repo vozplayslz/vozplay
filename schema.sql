@@ -135,8 +135,12 @@ CREATE TABLE IF NOT EXISTS queue_items (
     id VARCHAR(64) PRIMARY KEY,
     session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
     participant_id VARCHAR(64) REFERENCES participants(id) ON DELETE CASCADE,
+    partner_participant_id VARCHAR(64) REFERENCES participants(id) ON DELETE SET NULL,
+    partner_display_name VARCHAR(255),
+    is_duet BOOLEAN NOT NULL DEFAULT FALSE,
     music_id VARCHAR(64) REFERENCES music(id) ON DELETE CASCADE,
     version_id VARCHAR(64) REFERENCES music_versions(id) ON DELETE CASCADE,
+    tone_offset INTEGER NOT NULL DEFAULT 0,
     status VARCHAR(32) NOT NULL DEFAULT 'QUEUED', -- 'QUEUED', 'PLAYING', 'COMPLETED', 'CANCELLED', 'CANCELLED_SESSION_ENDED', 'ERROR'
     order_index INTEGER NOT NULL,
     queued_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -146,6 +150,22 @@ CREATE TABLE IF NOT EXISTS queue_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_queue_session_status ON queue_items(session_id, status, order_index);
+
+-- 10.1 Convites de Dueto (Apresentação Compartilhada)
+CREATE TABLE IF NOT EXISTS duet_invitations (
+    id VARCHAR(64) PRIMARY KEY,
+    session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
+    sender_participant_id VARCHAR(64) REFERENCES participants(id) ON DELETE CASCADE,
+    target_participant_id VARCHAR(64) REFERENCES participants(id) ON DELETE CASCADE,
+    music_id VARCHAR(64) REFERENCES music(id) ON DELETE CASCADE,
+    version_id VARCHAR(64) REFERENCES music_versions(id) ON DELETE CASCADE,
+    tone_offset INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING', -- 'PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED', 'EXPIRED'
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_duet_invitations ON duet_invitations(session_id, target_participant_id, status);
 
 -- 11. Estados de Reprodução da TV
 CREATE TABLE IF NOT EXISTS playback_states (

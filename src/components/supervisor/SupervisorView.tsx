@@ -291,6 +291,7 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConne
     link.href = url;
     link.download = `vozplay-leads-${session?.code || 'slz'}.csv`;
     link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const showFeedback = (message: string, type: 'success' | 'error') => {
