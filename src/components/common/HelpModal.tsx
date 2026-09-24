@@ -35,6 +35,7 @@ import {
   Users,
   Camera
 } from 'lucide-react';
+import { VozPlayMascotIcon } from './VozPlayLogo.js';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -103,13 +104,13 @@ export const HelpModal: React.FC<HelpModalProps> = ({
         {/* Header */}
         <div className="px-6 py-4.5 border-b border-white/[0.08] flex items-center justify-between bg-[#0e1324]/80">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-pink-500/20">
-              <BookOpen className="w-5 h-5" />
+            <div className="relative flex-shrink-0">
+              <VozPlayMascotIcon size={40} animated />
             </div>
             <div>
               <h2 className="text-lg font-black text-white tracking-tight flex items-center gap-2">
                 Central de Ajuda & Guia Operacional
-                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
                   VozPlay v1.2
                 </span>
               </h2>

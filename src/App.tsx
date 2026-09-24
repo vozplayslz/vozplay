@@ -21,6 +21,7 @@ import { useVozPlaySocket } from './hooks/useVozPlaySocket.js';
 import { Session, WSEventType, ActiveTab } from './types.js';
 import { Sparkles } from 'lucide-react';
 import { applyGlobalBrandingTokens } from './utils/brandingTokens.js';
+import { apiFetch as fetch } from './utils/apiClient.js';
 
 export default function App() {
   const [trackerItemId, setTrackerItemId] = useState<string>(() => {

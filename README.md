@@ -109,6 +109,9 @@ npm install
 
 # 3. Inicie o servidor integrado de desenvolvimento (porta 3000)
 npm run dev
+
+# 4. Execute a suíte de testes de integração e conformidade de segurança (38 testes)
+npm test
 ```
 
 Acesse a aplicação no navegador em: `http://localhost:3000`.
@@ -217,17 +220,48 @@ O servidor WebSocket escuta no mesmo canal HTTP (`/ws` ou raiz da porta 3000) e 
 
 ---
 
+## 🔑 Autenticação, RBAC e Segurança
+
+A plataforma VozPlay implementa segurança em camadas com autenticação baseada em tokens criptográficos e controle de acesso baseado em papéis (RBAC):
+
+1. **Tokens Criptográficos de Sessão (`server/auth.ts`):**
+   - Emitidos via `POST /api/v1/auth/login` para perfis `SUPERVISOR`, `CONTROLLER`, `PARTICIPANT` e `TV`.
+   - Hash SHA-256 armazenado na tabela `auth_tokens` com data de expiração e controle de revogação.
+   - Suporte a Bearer Token no header `Authorization` e no handshake de conexão WebSocket (`?token=...`).
+
+2. **Autorização Rígida de Rotas (RBAC):**
+   - **Supervisor:** Exclusividade para início/pausa/prorrogação/encerramento de sessões, alteração de identidade visual (white-label), exportação de leads LGPD e assunção emergencial (*takeover*).
+   - **Controlador:** Restrito aos comandos de cabine (play, pause, next, volume, soundboard, fila, códigos de presença).
+   - **Participante:** Permissão exclusiva de gerenciar a sua própria vaga na fila e enviar reações em tempo real. Bloqueio automático com 403 Forbidden para tentativas de alteração de estado global.
+
+3. **Isolamento Multi-Tenant Real:**
+   - Todos os registros, filas, catálogos e sessões são estritamente particionados por `establishment_id`. Tentativas de acesso entre estabelecimentos diferentes são bloqueadas com 403 Forbidden e geram log de `SECURITY`.
+
+4. **Proteção contra Brute Force:**
+   - O código de presença rotativo de 4 dígitos possui validade estrita de 60 segundos e proteção contra enumeração (máximo 5 tentativas incorretas consecutivas por IP com cooldown de 2 minutos).
+
+5. **Concorrência Segura da Fila (`AsyncMutex`):**
+   - Inserções, chamadas e cancelamentos concorrentes utilizam locks atômicos, impedindo colisões de posição (`orderIndex`) ou saltos na fila rotativa.
+
+---
+
 ## 🗄️ Esquema Relacional PostgreSQL
 
 O arquivo `schema.sql` na raiz do projeto contém o DDL completo para implantação em bancos relacionais:
 - `establishments` — Unidades e bares com seus domínios e configurações.
+- `establishment_branding` — Identidade visual white-label (logo, cores, temas, WCAG).
 - `devices` — Registro de dispositivos desacoplados (PWA, Android TV, Controlador).
 - `users` — Operadores, supervisores e administradores do sistema.
 - `sessions` — Sessões de karaokê com controle de vigência e encerramento.
 - `presence_codes` — Histórico de códigos de validação de 4 dígitos e expirações.
-- `catalog_songs` — Catálogo oficial de músicas, artistas, gêneros e links de vídeo.
-- `queue_items` — Fila de reprodução com ordem, tom musical e participante vinculado.
-- `audit_logs` — Trilha de auditoria para conformidade e segurança.
+- `music` & `music_versions` — Catálogo oficial de músicas, versões, estilos e referências de vídeo.
+- `queue_items` — Fila transacional de reprodução com ordem, tom musical e participante vinculado.
+- `playback_states` — Estado de reprodução em tempo real da TV.
+- `leads` — Contatos de clientes coletados com consentimento LGPD.
+- `audit_logs` — Trilha de auditoria estruturada para conformidade e segurança.
+- `auth_tokens` — Tokens criptográficos de autenticação e revogação.
+- `tv_reactions` — Registro de interações em tempo real da plateia.
+- `sound_effects` — Registro de vinhetas e efeitos sonoros acionados pelo operador.
 
 ---
 

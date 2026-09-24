@@ -25,6 +25,8 @@ import {
   Megaphone,
   Timer
 } from 'lucide-react';
+import { apiFetch as fetch } from '../../utils/apiClient.js';
+import { VozPlayMascotIcon } from '../common/VozPlayLogo.js';
 
 interface TurnTrackerProps {
   queueItemId: string;
@@ -117,10 +119,9 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 text-center">
         <div className="relative mb-6">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600 to-pink-500 flex items-center justify-center text-white shadow-xl shadow-purple-500/30 animate-pulse">
-            <Mic2 className="w-8 h-8" />
+          <div className="relative p-2 rounded-2xl bg-blue-600/10 border border-blue-500/25 backdrop-blur-md shadow-xl shadow-blue-500/20">
+            <VozPlayMascotIcon size={72} animated />
           </div>
-          <div className="absolute inset-0 rounded-2xl border-2 border-pink-400 animate-ping opacity-25" />
         </div>
         <p className="text-base font-display font-black text-white">Carregando acompanhamento ao vivo...</p>
         <p className="text-xs text-slate-400 mt-1">VOZPLAY • Transmissão em tempo real de palco</p>
@@ -390,9 +391,11 @@ export const TurnTrackerView: React.FC<TurnTrackerProps> = ({
       </div>
 
       {/* Invitation Card to Sing */}
-      <div className="rounded-3xl bg-gradient-to-br from-[#121028] via-[#0d1222] to-[#080c16] border border-pink-500/20 p-6 space-y-4 text-center ring-1 ring-white/5 shadow-2xl">
-        <div className="w-12 h-12 rounded-2xl bg-pink-500/20 text-pink-400 border border-pink-500/30 flex items-center justify-center mx-auto shadow-lg shadow-pink-500/10">
-          <Sparkles className="w-6 h-6" />
+      <div className="rounded-3xl bg-gradient-to-br from-[#121028] via-[#0d1222] to-[#080c16] border border-blue-500/20 p-6 space-y-4 text-center ring-1 ring-white/5 shadow-2xl">
+        <div className="flex justify-center">
+          <div className="p-1 rounded-2xl bg-blue-600/10 border border-blue-500/20 shadow-md">
+            <VozPlayMascotIcon size={52} animated />
+          </div>
         </div>
         <div>
           <h4 className="text-base font-display font-black text-white">Quer soltar a voz também?</h4>

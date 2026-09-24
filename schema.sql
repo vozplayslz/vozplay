@@ -1,7 +1,7 @@
 -- ==========================================================
 -- VOZPLAY BETA - PostgreSQL DDL Schema
 -- Dominio: vozplay.ai.slz.br
--- Entidades definidas na Seção 47 do PRD
+-- Entidades definidas na Seção 47 do PRD + Auditoria & Hardening
 -- ==========================================================
 
 -- 1. Estabelecimentos
@@ -70,11 +70,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     scheduled_end_time TIMESTAMP WITH TIME ZONE,
     ended_at TIMESTAMP WITH TIME ZONE,
     active_controller_id VARCHAR(64),
-    supervisor_id VARCHAR(64) REFERENCES users(id),
+    active_controller_name VARCHAR(255),
+    supervisor_id VARCHAR(64),
+    supervisor_name VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_code ON sessions(code);
+CREATE INDEX IF NOT EXISTS idx_sessions_est ON sessions(establishment_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 
 -- 5. Códigos de Presença (4 dígitos, expiração em 60s)
@@ -133,7 +136,7 @@ CREATE INDEX IF NOT EXISTS idx_music_search ON music(title, artist, genre);
 CREATE TABLE IF NOT EXISTS music_versions (
     id VARCHAR(64) PRIMARY KEY,
     music_id VARCHAR(64) REFERENCES music(id) ON DELETE CASCADE,
-    style VARCHAR(64) NOT NULL, -- 'karaoke', 'playback', 'acustico', 'original', 'instrumental', 'cover', 'live', 'Estilo não identificado'
+    style VARCHAR(64) NOT NULL,
     label VARCHAR(255) NOT NULL,
     youtube_video_id VARCHAR(64) NOT NULL,
     duration_sec INTEGER NOT NULL DEFAULT 180,
@@ -158,11 +161,16 @@ CREATE TABLE IF NOT EXISTS queue_items (
     id VARCHAR(64) PRIMARY KEY,
     session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
     participant_id VARCHAR(64) REFERENCES participants(id) ON DELETE CASCADE,
+    participant_display_name VARCHAR(255) NOT NULL,
     partner_participant_id VARCHAR(64) REFERENCES participants(id) ON DELETE SET NULL,
     partner_display_name VARCHAR(255),
     is_duet BOOLEAN NOT NULL DEFAULT FALSE,
-    music_id VARCHAR(64) REFERENCES music(id) ON DELETE CASCADE,
-    version_id VARCHAR(64) REFERENCES music_versions(id) ON DELETE CASCADE,
+    music_id VARCHAR(64) NOT NULL,
+    music_title VARCHAR(255) NOT NULL,
+    music_artist VARCHAR(255) NOT NULL,
+    version_id VARCHAR(64) NOT NULL,
+    version_style VARCHAR(64) NOT NULL,
+    youtube_video_id VARCHAR(64) NOT NULL,
     tone_offset INTEGER NOT NULL DEFAULT 0,
     status VARCHAR(32) NOT NULL DEFAULT 'QUEUED', -- 'QUEUED', 'CALLED', 'PLAYING', 'COMPLETED', 'CANCELLED', 'CANCELLED_SESSION_ENDED', 'ERROR'
     order_index INTEGER NOT NULL,
@@ -197,7 +205,7 @@ CREATE INDEX IF NOT EXISTS idx_duet_invitations ON duet_invitations(session_id, 
 CREATE TABLE IF NOT EXISTS playback_states (
     session_id VARCHAR(64) PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
     current_queue_item_id VARCHAR(64) REFERENCES queue_items(id) ON DELETE SET NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'IDLE', -- 'IDLE', 'LOADING', 'PLAYING', 'PAUSED', 'ERROR', 'COMPLETED'
+    status VARCHAR(32) NOT NULL DEFAULT 'IDLE', -- 'IDLE', 'LOADING', 'PLAYING', 'PAUSED', 'ERROR', 'COMPLETED', 'CALLING_PARTICIPANT'
     current_time_sec INTEGER NOT NULL DEFAULT 0,
     volume INTEGER NOT NULL DEFAULT 100,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -227,6 +235,8 @@ CREATE TABLE IF NOT EXISTS leads (
     origin VARCHAR(32) NOT NULL DEFAULT 'PARTICIPANTE'
 );
 
+CREATE INDEX IF NOT EXISTS idx_leads_est ON leads(establishment_id);
+
 -- 14. Logs de Auditoria
 CREATE TABLE IF NOT EXISTS audit_logs (
     id VARCHAR(64) PRIMARY KEY,
@@ -239,3 +249,60 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_logs(session_id, created_at DESC);
+
+-- 15. Tokens de Autenticação Segura (RBAC Real)
+CREATE TABLE IF NOT EXISTS auth_tokens (
+    id VARCHAR(64) PRIMARY KEY,
+    token_hash VARCHAR(128) UNIQUE NOT NULL,
+    role VARCHAR(32) NOT NULL,
+    establishment_id VARCHAR(64) NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
+    session_id VARCHAR(64) NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    actor_id VARCHAR(64) NOT NULL,
+    actor_name VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_tokens_hash ON auth_tokens(token_hash, is_revoked);
+
+-- 16. Reações da TV em Tempo Real
+CREATE TABLE IF NOT EXISTS tv_reactions (
+    id VARCHAR(64) PRIMARY KEY,
+    session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
+    participant_id VARCHAR(64),
+    emoji VARCHAR(32) NOT NULL,
+    label VARCHAR(64),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_tv_reactions_session ON tv_reactions(session_id, created_at DESC);
+
+-- 17. Efeitos Sonoros / Soundboard
+CREATE TABLE IF NOT EXISTS sound_effects (
+    id VARCHAR(64) PRIMARY KEY,
+    session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
+    sound_id VARCHAR(64) NOT NULL,
+    label VARCHAR(128) NOT NULL,
+    triggered_by VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================================
+-- SEED INICIAL DE SEGURANÇA E ESTABELECIMENTO PADRÃO
+-- ==========================================================
+INSERT INTO establishments (id, name, domain, unit_code, active)
+VALUES ('est-slz-lounge', 'VozPlay Lounge São Luís', 'vozplay.ai.slz.br', 'SLZ01', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO establishment_branding (
+    id, establishment_id, business_name, slogan,
+    primary_color, secondary_color, accent_color, background_color, surface_color, text_color,
+    theme_mode, tv_theme, participant_theme, controller_theme
+)
+VALUES (
+    'brand-est-slz', 'est-slz-lounge', 'VozPlay Lounge São Luís', 'O palco do seu melhor momento',
+    '#7C3AED', '#EC4899', '#F59E0B', '#060811', '#0E1322', '#F8FAFC',
+    'DARK', 'DARK', 'DARK', 'DARK'
+)
+ON CONFLICT (establishment_id) DO NOTHING;

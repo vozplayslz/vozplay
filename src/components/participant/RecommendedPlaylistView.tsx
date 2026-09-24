@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Music, Participant, RecommendedPlaylist, RecommendedTrack } from '../../types.js';
+import { apiFetch as fetch } from '../../utils/apiClient.js';
 
 interface RecommendedPlaylistViewProps {
   participant: Participant;

@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { QueueItem, PresenceCode, Session, PlaybackStatus, CallingParticipantState } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
+import { apiFetch as fetch } from '../../utils/apiClient.js';
 import { ControllerSidebar, ControllerSectionFilter } from './ControllerSidebar.js';
 import { SoundboardPanel } from './SoundboardPanel.js';
 

@@ -1,44 +1,152 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
+    <!-- Background Gradient -->
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="0%" stop-color="#0B1120" />
+      <stop offset="50%" stop-color="#060811" />
       <stop offset="100%" stop-color="#020617" />
     </linearGradient>
-    <linearGradient id="primaryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#3b82f6" />
-      <stop offset="50%" stop-color="#8b5cf6" />
-      <stop offset="100%" stop-color="#ec4899" />
+
+    <!-- Octo Body 3D Gradient -->
+    <radialGradient id="octoBody" cx="40%" cy="30%" r="70%" fx="35%" fy="25%">
+      <stop offset="0%" stop-color="#60A5FA" />
+      <stop offset="25%" stop-color="#2563EB" />
+      <stop offset="70%" stop-color="#1D4ED8" />
+      <stop offset="100%" stop-color="#1E3A8A" />
+    </radialGradient>
+
+    <!-- Head Gloss -->
+    <linearGradient id="headGloss" x1="0%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.8" />
+      <stop offset="40%" stop-color="#93C5FD" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#3B82F6" stop-opacity="0" />
     </linearGradient>
-    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.8" />
-      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.2" />
+
+    <!-- Sucker Glow -->
+    <radialGradient id="suckerGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#A5F3FC" />
+      <stop offset="60%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#0284C7" />
+    </radialGradient>
+
+    <!-- Metallic Mic -->
+    <linearGradient id="micMetal" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#64748B" />
+      <stop offset="25%" stop-color="#CBD5E1" />
+      <stop offset="50%" stop-color="#FFFFFF" />
+      <stop offset="75%" stop-color="#94A3B8" />
+      <stop offset="100%" stop-color="#475569" />
     </linearGradient>
+
+    <!-- Mic Stand -->
+    <linearGradient id="micBody" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155" />
+      <stop offset="100%" stop-color="#0F172A" />
+    </linearGradient>
+
+    <!-- Sound Wave Gradient -->
+    <linearGradient id="waveGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#60A5FA" />
+    </linearGradient>
+
+    <!-- Outer Glow for App Icon -->
+    <radialGradient id="outerGlow" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#2563EB" stop-opacity="0.35" />
+      <stop offset="70%" stop-color="#0284C7" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </radialGradient>
   </defs>
 
-  <!-- Background -->
+  <!-- Base Icon Container (Rounded Rect for PWA and Mobile OS) -->
   <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
-  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4" />
+  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="4" />
+  
+  <!-- Subtle Ambient Glow -->
+  <circle cx="256" cy="220" r="210" fill="url(#outerGlow)" />
 
-  <!-- Central Play & Mic Fusion Icon -->
-  <g transform="translate(106, 86)">
-    <!-- Equalizer bars / Waveform circle -->
-    <circle cx="150" cy="170" r="140" fill="none" stroke="url(#glowGrad)" stroke-width="12" stroke-dasharray="8 12" />
-    
-    <!-- Play Triangle -->
-    <path d="M 120,90 L 225,170 L 120,250 Z" fill="url(#primaryGrad)" />
-    
-    <!-- Microphone Silhouette overlapping -->
-    <rect x="135" y="115" width="30" height="60" rx="15" fill="#ffffff" opacity="0.95" />
-    <path d="M 125,145 C 125,175 175,175 175,145" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
-    <line x1="150" y1="175" x2="150" y2="200" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
-    <line x1="135" y1="200" x2="165" y2="200" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
+  <!-- MASCOTE POLVO CANTOR VOZPLAY (Centralizado e ampliado) -->
+  <g transform="translate(100, 48) scale(1.65)">
+    <!-- Ondas Sonoras -->
+    <path d="M 125 35 C 135 25 148 23 158 31" stroke="url(#waveGrad)" stroke-width="7" stroke-linecap="round" fill="none" />
+    <path d="M 135 18 C 152 7 172 10 184 24" stroke="url(#waveGrad)" stroke-width="8" stroke-linecap="round" fill="none" />
+
+    <!-- Tentáculos Traseiros -->
+    <path d="M 46 115 C 30 110 15 125 22 140 C 28 152 48 145 56 132" fill="#1E40AF" />
+    <path d="M 140 120 C 155 120 168 132 162 148 C 156 158 138 152 132 138" fill="#1E40AF" />
+
+    <!-- Tentáculos Frontais -->
+    <path d="M 60 118 C 40 115 20 128 25 148 C 29 164 54 162 65 142 C 68 135 70 126 65 120 Z" fill="url(#octoBody)" />
+    <circle cx="32" cy="142" r="5" fill="url(#suckerGlow)" />
+    <circle cx="44" cy="153" r="5.5" fill="url(#suckerGlow)" />
+    <circle cx="56" cy="148" r="5" fill="url(#suckerGlow)" />
+
+    <path d="M 70 128 C 55 142 45 160 62 172 C 78 178 95 162 88 142 Z" fill="url(#octoBody)" />
+    <circle cx="58" cy="162" r="5.5" fill="url(#suckerGlow)" />
+    <circle cx="70" cy="168" r="6" fill="url(#suckerGlow)" />
+    <circle cx="83" cy="162" r="5.5" fill="url(#suckerGlow)" />
+
+    <path d="M 112 128 C 127 142 137 160 120 172 C 104 178 88 162 94 142 Z" fill="url(#octoBody)" />
+    <circle cx="124" cy="162" r="5.5" fill="url(#suckerGlow)" />
+    <circle cx="112" cy="168" r="6" fill="url(#suckerGlow)" />
+    <circle cx="99" cy="162" r="5.5" fill="url(#suckerGlow)" />
+
+    <path d="M 125 118 C 138 116 150 125 152 138 C 153 148 144 154 135 150 C 126 145 124 132 122 122 Z" fill="url(#octoBody)" />
+    <circle cx="145" cy="132" r="5" fill="url(#suckerGlow)" />
+    <circle cx="146" cy="144" r="4.5" fill="url(#suckerGlow)" />
+
+    <!-- Cabeça Principal -->
+    <ellipse cx="96" cy="85" rx="58" ry="56" fill="url(#octoBody)" />
+    <ellipse cx="78" cy="54" rx="34" ry="24" fill="url(#headGloss)" transform="rotate(-15 78 54)" />
+    <circle cx="68" cy="46" r="9" fill="#FFFFFF" opacity="0.65" />
+
+    <!-- Olhos Fofos Expressivos -->
+    <ellipse cx="76" cy="88" rx="15" ry="19" fill="#0A0F1D" />
+    <circle cx="72" cy="82" r="7" fill="#FFFFFF" />
+    <circle cx="81" cy="94" r="3" fill="#FFFFFF" />
+
+    <ellipse cx="116" cy="88" rx="15" ry="19" fill="#0A0F1D" />
+    <circle cx="112" cy="82" r="7" fill="#FFFFFF" />
+    <circle cx="121" cy="94" r="3" fill="#FFFFFF" />
+
+    <!-- Sobrancelhas -->
+    <path d="M 68 66 C 72 62 82 63 85 66" stroke="#1E3A8A" stroke-width="3" stroke-linecap="round" fill="none" />
+    <path d="M 108 66 C 111 62 121 63 124 66" stroke="#1E3A8A" stroke-width="3" stroke-linecap="round" fill="none" />
+
+    <!-- Boca Cantora -->
+    <path d="M 88 108 C 88 108 96 117 104 108 C 105 116 97 122 96 122 C 95 122 87 116 88 108 Z" fill="#831843" />
+    <path d="M 91 116 C 94 113 98 113 101 116 C 99 120 93 120 91 116 Z" fill="#F472B6" />
+
+    <!-- Mãozinha Segurando Microfone -->
+    <g transform="translate(136, 92)">
+      <path d="M -10 18 C 0 10 16 15 16 28 C 16 38 -2 38 -8 24 Z" fill="url(#octoBody)" />
+      <circle cx="10" cy="24" r="5" fill="url(#suckerGlow)" />
+    </g>
+
+    <!-- Microfone Vintage Shure Style -->
+    <g transform="translate(142, 60)">
+      <path d="M -5 32 C -8 44 26 44 23 32" fill="none" stroke="url(#micBody)" stroke-width="4.5" stroke-linecap="round" />
+      <line x1="9" y1="40" x2="9" y2="52" stroke="url(#micBody)" stroke-width="5" stroke-linecap="round" />
+      <rect x="-2" y="2" width="22" height="34" rx="11" fill="url(#micMetal)" stroke="#334155" stroke-width="1.5" />
+      <line x1="0" y1="8" x2="18" y2="8" stroke="#1E293B" stroke-width="2" />
+      <line x1="-1" y1="13" x2="19" y2="13" stroke="#1E293B" stroke-width="2" />
+      <line x1="-2" y1="18" x2="20" y2="18" stroke="#1E293B" stroke-width="2.5" />
+      <line x1="-1" y1="23" x2="19" y2="23" stroke="#1E293B" stroke-width="2" />
+      <line x1="0" y1="28" x2="18" y2="28" stroke="#1E293B" stroke-width="2" />
+      <line x1="9" y1="4" x2="9" y2="34" stroke="#0F172A" stroke-width="1.5" />
+      <rect x="2" y="5" width="4" height="26" rx="2" fill="#FFFFFF" opacity="0.65" />
+    </g>
   </g>
 
-  <!-- Brand Text -->
-  <text x="256" y="420" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="900" letter-spacing="2" fill="#ffffff">
-    VOZ<tspan fill="#ec4899">PLAY</tspan>
-  </text>
-  <text x="256" y="450" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="600" letter-spacing="6" fill="#94a3b8">
-    KARAOKÊ
-  </text>
+  <!-- TIPOGRAFIA 3D OFICIAL VOZPLAY -->
+  <g transform="translate(256, 420)">
+    <!-- Texto 'VozPlay' -->
+    <text text-anchor="middle" font-family="'Plus Jakarta Sans', Outfit, -apple-system, sans-serif" font-size="62" font-weight="900" letter-spacing="-1">
+      <tspan fill="#2563EB" filter="drop-shadow(0 4px 12px rgba(37,99,235,0.6))">Voz</tspan><tspan fill="#F8FAFC">Play</tspan>
+    </text>
+    <!-- Subtítulo KARAOKÊ -->
+    <text y="38" text-anchor="middle" font-family="'Plus Jakarta Sans', Outfit, -apple-system, sans-serif" font-size="16" font-weight="800" letter-spacing="8" fill="#38BDF8">
+      KARAOKÊ
+    </text>
+  </g>
 </svg>

@@ -10,24 +10,43 @@
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import crypto from 'crypto';
 import { apiRouter } from './server/apiRouter.js';
 import { wsServer } from './server/wsServer.js';
+import { db } from './server/db.js';
+import { logger } from './server/logger.js';
+import { authMiddleware } from './server/auth.js';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   // Standard middleware
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-  // Request logger for audit and debugging
+  // Correlation ID & Request logger for audit and observability
   app.use((req, res, next) => {
+    const requestId = (req.headers['x-request-id'] as string) || ('req-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'));
+    req.requestId = requestId;
+    res.setHeader('X-Request-Id', requestId);
+
     if (req.path.startsWith('/api/')) {
-      console.log(`[API] ${req.method} ${req.path}`);
+      logger.info(`[HTTP] ${req.method} ${req.path}`, {
+        requestId,
+        ip: req.ip,
+        method: req.method,
+        path: req.path
+      });
     }
     next();
   });
+
+  // Auth Middleware
+  app.use(authMiddleware);
+
+  // Inicializa banco de dados e hidrata estado (PostgreSQL / In-Memory)
+  await db.initDatabase();
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {

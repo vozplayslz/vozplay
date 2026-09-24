@@ -13,6 +13,7 @@ interface UseVozPlaySocketOptions {
   role: 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV';
   sessionId?: string;
   participantId?: string;
+  token?: string;
   onEvent?: (event: WSEventType, payload: any) => void;
 }
 
@@ -20,6 +21,7 @@ export function useVozPlaySocket({
   role,
   sessionId,
   participantId,
+  token,
   onEvent
 }: UseVozPlaySocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
@@ -33,6 +35,7 @@ export function useVozPlaySocket({
   const roleRef = useRef(role);
   const sessionIdRef = useRef(sessionId);
   const participantIdRef = useRef(participantId);
+  const tokenRef = useRef(token);
 
   // Manter refs sincronizadas
   useEffect(() => {
@@ -43,19 +46,21 @@ export function useVozPlaySocket({
     roleRef.current = role;
     sessionIdRef.current = sessionId;
     participantIdRef.current = participantId;
+    tokenRef.current = token;
 
-    // Se o socket já estiver aberto e o perfil mudar (ex: troca de abas), re-registra imediatamente sem derrubar a conexão
+    // Se o socket já estiver aberto e o perfil mudar, re-registra imediatamente com credenciais
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
           type: 'REGISTER_CLIENT',
           role,
           sessionId: sessionId || 'sess-slz-01',
-          participantId
+          participantId,
+          token
         })
       );
     }
-  }, [role, sessionId, participantId]);
+  }, [role, sessionId, participantId, token]);
 
   const connect = useCallback(() => {
     if (
@@ -67,7 +72,9 @@ export function useVozPlaySocket({
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const activeToken = tokenRef.current || (typeof window !== 'undefined' ? localStorage.getItem('vp_token_' + roleRef.current.toLowerCase()) : null);
+    const tokenQuery = activeToken ? `?token=${encodeURIComponent(activeToken)}&role=${roleRef.current}` : `?role=${roleRef.current}`;
+    const wsUrl = `${protocol}//${window.location.host}/ws${tokenQuery}`;
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -84,7 +91,8 @@ export function useVozPlaySocket({
             type: 'REGISTER_CLIENT',
             role: roleRef.current,
             sessionId: sessionIdRef.current || 'sess-slz-01',
-            participantId: participantIdRef.current
+            participantId: participantIdRef.current,
+            token: activeToken || undefined
           })
         );
       };

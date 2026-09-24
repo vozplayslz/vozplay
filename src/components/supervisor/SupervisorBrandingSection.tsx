@@ -28,6 +28,8 @@ import {
   ShieldCheck,
   Check
 } from 'lucide-react';
+import { apiFetch as fetch } from '../../utils/apiClient.js';
+import { VozPlayMascotIcon, VozPlayLogo, LogoColorMode } from '../common/VozPlayLogo.js';
 import { EstablishmentBrandingDTO, Session } from '../../types.js';
 import {
   DEFAULT_BRANDING_DTO,
@@ -66,6 +68,10 @@ export const SupervisorBrandingSection: React.FC<SupervisorBrandingSectionProps>
   const [previewTab, setPreviewTab] = useState<PreviewTab>('TV');
   const [tvScreen, setTvScreen] = useState<TVPreviewScreen>('WAITING');
   const [participantScreen, setParticipantScreen] = useState<ParticipantPreviewScreen>('ENTRY');
+
+  // Estados para Preview Interativo da Logo & Favicon
+  const [logoColorMode, setLogoColorMode] = useState<LogoColorMode>('adaptive');
+  const [logoPreviewTheme, setLogoPreviewTheme] = useState<'dark' | 'light'>('dark');
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -386,9 +392,15 @@ export const SupervisorBrandingSection: React.FC<SupervisorBrandingSectionProps>
                       className="w-full h-full object-contain p-2"
                     />
                   ) : (
-                    <div className="flex flex-col items-center justify-center text-slate-500 text-center p-1">
-                      <Music className="w-6 h-6 text-purple-400" />
-                      <span className="text-[9px] font-bold mt-1 text-slate-400">Oficial</span>
+                    <div className="flex flex-col items-center justify-center p-1">
+                      <VozPlayMascotIcon
+                        size={38}
+                        animated
+                        themeColor={brandingForm.primaryColor}
+                        colorMode={logoColorMode}
+                        themeMode={brandingForm.themeMode === 'LIGHT' ? 'light' : 'dark'}
+                      />
+                      <span className="text-[9px] font-bold mt-0.5 text-blue-400">Oficial</span>
                     </div>
                   )}
                 </div>
@@ -424,6 +436,119 @@ export const SupervisorBrandingSection: React.FC<SupervisorBrandingSectionProps>
                   <p className="text-[11px] text-slate-500">
                     Dimensão recomendada: 400x120px ou ícone quadrado. Máx. 2.5MB.
                   </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 1.1 Customização da Logo VozPlay & Favicon */}
+            <div className="pt-3 border-t border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                  Logo & Favicon da Marca
+                </label>
+                <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-700/80 rounded-lg p-0.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setLogoColorMode('adaptive')}
+                    className={`px-2 py-0.5 rounded-md font-semibold transition cursor-pointer ${
+                      logoColorMode === 'adaptive'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="O mascote e o texto 'Voz' assumem a cor primária da casa"
+                  >
+                    Tom da Casa
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogoColorMode('official')}
+                    className={`px-2 py-0.5 rounded-md font-semibold transition cursor-pointer ${
+                      logoColorMode === 'official'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Mascote mantém o Azul Royal clássico oficial"
+                  >
+                    Azul Oficial
+                  </button>
+                </div>
+              </div>
+
+              {/* Box de Pré-visualização Dinâmica da Logo e Favicon */}
+              <div
+                className={`p-3.5 rounded-xl border transition-all space-y-3 ${
+                  logoPreviewTheme === 'light'
+                    ? 'bg-slate-100 border-slate-300 text-slate-900 shadow-inner'
+                    : 'bg-[#090D18] border-slate-800 text-white shadow-lg'
+                }`}
+              >
+                {/* Header do box com toggle dark/light de teste */}
+                <div className="flex items-center justify-between text-[11px] pb-2 border-b border-white/10">
+                  <span className={`font-semibold ${logoPreviewTheme === 'light' ? 'text-slate-700' : 'text-slate-400'}`}>
+                    Preview em Tempo Real:
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setLogoPreviewTheme('dark')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition ${
+                        logoPreviewTheme === 'dark' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Fundo Escuro
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLogoPreviewTheme('light')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition ${
+                        logoPreviewTheme === 'light' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-400'
+                      }`}
+                    >
+                      Fundo Claro
+                    </button>
+                  </div>
+                </div>
+
+                {/* Linha 1: Logo Principal Completa */}
+                <div className="flex items-center justify-between py-1">
+                  <VozPlayLogo
+                    size="sm"
+                    animated
+                    themeColor={brandingForm.primaryColor}
+                    colorMode={logoColorMode}
+                    themeMode={logoPreviewTheme}
+                  />
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-black/20 text-slate-400">
+                    Logo Oficial
+                  </span>
+                </div>
+
+                {/* Linha 2: Simulação de Favicon na Aba do Navegador */}
+                <div className="pt-2 border-t border-white/5 space-y-1.5">
+                  <span className={`text-[10px] font-semibold block ${logoPreviewTheme === 'light' ? 'text-slate-600' : 'text-slate-400'}`}>
+                    Favicon da Aba do Navegador (16px / 32px):
+                  </span>
+                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border max-w-xs ${
+                    logoPreviewTheme === 'light'
+                      ? 'bg-white border-slate-300 text-slate-800 shadow-sm'
+                      : 'bg-slate-900 border-slate-700 text-slate-200'
+                  }`}>
+                    {/* Favicon Miniatura */}
+                    <div className="relative flex-shrink-0">
+                      <VozPlayMascotIcon
+                        size={18}
+                        themeColor={brandingForm.primaryColor}
+                        colorMode={logoColorMode}
+                        themeMode={logoPreviewTheme}
+                        showShadow={false}
+                      />
+                    </div>
+                    <span className="text-[11px] font-medium truncate flex-1">
+                      {brandingForm.businessName || 'VozPlay'} - Karaokê
+                    </span>
+                    <span className="text-[9px] opacity-40">✕</span>
+                  </div>
                 </div>
               </div>
             </div>

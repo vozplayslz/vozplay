@@ -14,6 +14,8 @@ import { Tv, Music2, Radio, AlertTriangle, QrCode, Sparkles, CheckCircle2, Mic2,
 import { motion, AnimatePresence } from 'motion/react';
 import { TVSessionDTO } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
+import { apiFetch as fetch } from '../../utils/apiClient.js';
+import { VozPlayMascotIcon, VozPlayLogo } from '../common/VozPlayLogo.js';
 
 interface TVViewProps {
   onNotifyPlayerState?: (state: string, error?: string) => void;
@@ -400,13 +402,12 @@ export const TVView: React.FC<TVViewProps> = ({
               className="h-10 max-w-[150px] object-contain rounded-lg p-0.5 bg-black/40 border border-white/10"
             />
           ) : (
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-base shadow-lg"
-              style={{
-                background: `linear-gradient(135deg, ${tvData?.branding?.primaryColor || '#6366F1'}, ${tvData?.branding?.secondaryColor || '#EC4899'})`
-              }}
-            >
-              VP
+            <div className="relative flex-shrink-0">
+              <VozPlayMascotIcon
+                size={42}
+                animated
+                themeColor={tvData?.branding?.primaryColor}
+              />
             </div>
           )}
           <div>
@@ -648,9 +649,13 @@ export const TVView: React.FC<TVViewProps> = ({
               <div className="absolute -bottom-20 -right-20 w-56 h-56 bg-pink-600/15 rounded-full blur-3xl pointer-events-none" />
 
               <div className="relative z-10 space-y-6">
-                <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-pink-600 p-0.5 mx-auto shadow-2xl shadow-purple-600/30">
-                  <div className="w-full h-full bg-[#0a0e1c] rounded-[22px] flex items-center justify-center text-white">
-                    <Music2 className="w-10 h-10 text-purple-300" />
+                <div className="relative mx-auto flex flex-col items-center justify-center">
+                  <div className="relative p-2 rounded-3xl bg-blue-600/10 border border-blue-500/30 backdrop-blur-md shadow-2xl shadow-blue-500/20">
+                    <VozPlayMascotIcon
+                      size={100}
+                      animated
+                      themeColor={tvData?.branding?.primaryColor}
+                    />
                   </div>
                 </div>
 

@@ -45,6 +45,8 @@ import { playDJAudioEffect } from '../../utils/synthAudio.js';
 import { ParticipantSidebar, ParticipantSubTab } from './ParticipantSidebar.js';
 import { RecommendedPlaylistView } from './RecommendedPlaylistView.js';
 import { QRScannerModal } from './QRScannerModal.js';
+import { apiFetch as fetch } from '../../utils/apiClient.js';
+import { VozPlayMascotIcon, VozPlayLogo } from '../common/VozPlayLogo.js';
 
 interface ParticipantViewProps {
   session?: Session | null;
@@ -851,8 +853,15 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
                 />
               </div>
             ) : (
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600/30 to-pink-500/20 text-purple-300 mb-4 border border-purple-500/30 shadow-lg shadow-purple-900/30">
-                <Music2 className="w-8 h-8" />
+              <div className="flex justify-center mb-4">
+                <div className="relative p-2 rounded-2xl bg-blue-600/10 border border-blue-500/25 backdrop-blur-md shadow-lg shadow-blue-500/20">
+                  <VozPlayMascotIcon
+                    size={64}
+                    animated
+                    themeColor={session?.branding?.primaryColor}
+                    themeMode={session?.branding?.themeMode === 'LIGHT' ? 'light' : 'dark'}
+                  />
+                </div>
               </div>
             )}
             <h2 className="text-2xl font-black text-white tracking-tight">

@@ -35,6 +35,10 @@ import {
   normalizeHexColor
 } from './brandingUtils.js';
 
+import { pgClient } from './pgClient.js';
+import { logger } from './logger.js';
+import { AsyncMutex } from './asyncMutex.js';
+
 // Acervo de Letras Oficiais Autorizadas (Abstração Conforme Diretriz do Projeto)
 const AUTHORIZED_LYRICS: Record<string, SongLyrics> = {
   'm-1': {
@@ -589,6 +593,8 @@ class VozPlayDB {
   public sessionAlert: { message: string; level: string; active: boolean; timestamp: string } | null = null;
   public presenceFailedAttempts: Map<string, { count: number; lastAttempt: number }> = new Map();
   public brandings: Map<string, EstablishmentBranding> = new Map();
+  public queueMutex: AsyncMutex = new AsyncMutex();
+  public isPostgresActive: boolean = false;
 
   constructor() {
     const now = new Date();
@@ -632,6 +638,433 @@ class VozPlayDB {
 
     // Seed some initial participants and history for immediate realistic experience
     this.seedInitialSessionData();
+  }
+
+  /**
+   * Inicializa o banco de dados e hidrata o estado a partir do PostgreSQL se disponível
+   */
+  public async initDatabase(): Promise<void> {
+    try {
+      const ok = await pgClient.init();
+      this.isPostgresActive = ok;
+      if (ok) {
+        await this.hydrateFromPostgres();
+      } else {
+        logger.info('VozPlay DB rodando em modo In-Memory resiliente.');
+      }
+    } catch (err) {
+      logger.error('Erro ao inicializar banco de dados no startup:', err);
+    }
+  }
+
+  /**
+   * Hidrata o estado do servidor a partir do PostgreSQL (Resiliência a restarts)
+   */
+  public async hydrateFromPostgres(): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      logger.info('Hidratando estado autoritativo a partir do PostgreSQL...');
+
+      // 1. Branding do Estabelecimento
+      const brandRes = await pgClient.query('SELECT * FROM establishment_branding WHERE establishment_id = $1', [this.session.establishmentId]);
+      if (brandRes.rows.length > 0) {
+        const b = brandRes.rows[0];
+        const loadedBranding: EstablishmentBranding = {
+          id: b.id,
+          establishmentId: b.establishment_id,
+          businessName: b.business_name,
+          slogan: b.slogan || '',
+          logoUrl: b.logo_url || '',
+          primaryColor: b.primary_color,
+          secondaryColor: b.secondary_color,
+          accentColor: b.accent_color,
+          backgroundColor: b.background_color,
+          surfaceColor: b.surface_color,
+          textColor: b.text_color,
+          themeMode: b.theme_mode,
+          tvTheme: b.tv_theme,
+          participantTheme: b.participant_theme,
+          controllerTheme: b.controller_theme,
+          updatedAt: b.updated_at ? new Date(b.updated_at).toISOString() : new Date().toISOString()
+        };
+        this.brandings.set(this.session.establishmentId, loadedBranding);
+        this.session.branding = this.getBrandingDTO(this.session.establishmentId);
+        this.session.establishmentName = loadedBranding.businessName;
+      } else {
+        await this.persistBranding(this.getBranding(this.session.establishmentId));
+      }
+
+      // 2. Sessão Ativa
+      const sessRes = await pgClient.query(
+        `SELECT * FROM sessions 
+         WHERE establishment_id = $1 AND status != 'ENDED' 
+         ORDER BY created_at DESC LIMIT 1`,
+        [this.session.establishmentId]
+      );
+
+      if (sessRes.rows.length > 0) {
+        const s = sessRes.rows[0];
+        this.session = {
+          id: s.id,
+          establishmentId: s.establishment_id,
+          establishmentName: this.getBranding(s.establishment_id).businessName,
+          name: s.name,
+          code: s.code,
+          status: s.status,
+          startedAt: s.started_at ? new Date(s.started_at).toISOString() : this.session.startedAt,
+          scheduledEndTime: s.scheduled_end_time ? new Date(s.scheduled_end_time).toISOString() : this.session.scheduledEndTime,
+          activeControllerId: s.active_controller_id || this.session.activeControllerId,
+          activeControllerName: s.active_controller_name || this.session.activeControllerName,
+          supervisorId: s.supervisor_id || this.session.supervisorId,
+          supervisorName: s.supervisor_name || this.session.supervisorName,
+          createdAt: new Date(s.created_at).toISOString(),
+          branding: this.getBrandingDTO(s.establishment_id)
+        };
+        logger.info(`Sessão restaurada do PostgreSQL: ${this.session.name} (${this.session.id})`);
+      } else {
+        await this.persistSession(this.session);
+      }
+
+      // 3. Participantes
+      const partRes = await pgClient.query(
+        'SELECT * FROM participants WHERE session_id = $1',
+        [this.session.id]
+      );
+      if (partRes.rows.length > 0) {
+        this.participants.clear();
+        for (const p of partRes.rows) {
+          this.participants.set(p.id, {
+            id: p.id,
+            sessionId: p.session_id,
+            identityId: p.identity_id,
+            displayName: p.display_name,
+            whatsapp: p.whatsapp,
+            isVerified: p.is_verified,
+            verifiedAt: p.verified_at ? new Date(p.verified_at).toISOString() : undefined,
+            joinedAt: new Date(p.joined_at).toISOString()
+          });
+        }
+      }
+
+      // 4. Itens da Fila Ativos
+      const queueRes = await pgClient.query(
+        `SELECT * FROM queue_items 
+         WHERE session_id = $1 AND status IN ('QUEUED', 'CALLED', 'PLAYING') 
+         ORDER BY order_index ASC`,
+        [this.session.id]
+      );
+      if (queueRes.rows.length > 0) {
+        this.queue = queueRes.rows.map(q => ({
+          id: q.id,
+          sessionId: q.session_id,
+          participantId: q.participant_id,
+          participantDisplayName: q.participant_display_name,
+          partnerParticipantId: q.partner_participant_id,
+          partnerDisplayName: q.partner_display_name,
+          isDuet: q.is_duet,
+          musicId: q.music_id,
+          musicTitle: q.music_title,
+          musicArtist: q.music_artist,
+          versionId: q.version_id,
+          versionStyle: q.version_style as MusicVersionStyle,
+          youtubeVideoId: q.youtube_video_id,
+          toneOffset: q.tone_offset,
+          status: q.status,
+          orderIndex: q.order_index,
+          missedTurnCount: q.missed_turn_count || 0,
+          queuedAt: new Date(q.queued_at).toISOString(),
+          calledAt: q.called_at ? new Date(q.called_at).toISOString() : undefined,
+          callExpiresAt: q.call_expires_at ? new Date(q.call_expires_at).toISOString() : undefined,
+          startedAt: q.started_at ? new Date(q.started_at).toISOString() : undefined,
+          completedAt: q.completed_at ? new Date(q.completed_at).toISOString() : undefined
+        }));
+        logger.info(`Fila restaurada do PostgreSQL: ${this.queue.length} músicas carregadas.`);
+      }
+
+      // 5. Playback State
+      const playRes = await pgClient.query(
+        'SELECT * FROM playback_states WHERE session_id = $1',
+        [this.session.id]
+      );
+      if (playRes.rows.length > 0) {
+        const pl = playRes.rows[0];
+        this.playbackState = {
+          status: pl.status,
+          currentQueueItemId: pl.current_queue_item_id,
+          currentTimeSec: pl.current_time_sec || 0,
+          volume: pl.volume || 100,
+          updatedAt: new Date(pl.updated_at).toISOString()
+        };
+      } else {
+        await this.persistPlaybackState();
+      }
+
+      logger.info('Hidratação do PostgreSQL concluída com sucesso!');
+    } catch (err) {
+      logger.error('Erro durante hidratação a partir do PostgreSQL:', err);
+    }
+  }
+
+  public async persistSession(session: Session): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      await pgClient.query(
+        `INSERT INTO sessions (
+          id, establishment_id, name, code, status, started_at, scheduled_end_time,
+          ended_at, active_controller_id, active_controller_name, supervisor_id, supervisor_name
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          status = EXCLUDED.status,
+          started_at = EXCLUDED.started_at,
+          scheduled_end_time = EXCLUDED.scheduled_end_time,
+          ended_at = EXCLUDED.ended_at,
+          active_controller_id = EXCLUDED.active_controller_id,
+          active_controller_name = EXCLUDED.active_controller_name,
+          supervisor_id = EXCLUDED.supervisor_id,
+          supervisor_name = EXCLUDED.supervisor_name`,
+        [
+          session.id,
+          session.establishmentId,
+          session.name,
+          session.code,
+          session.status,
+          session.startedAt || null,
+          session.scheduledEndTime || null,
+          session.endedAt || null,
+          session.activeControllerId || null,
+          session.activeControllerName || null,
+          session.supervisorId || null,
+          session.supervisorName || null
+        ]
+      );
+    } catch (err) {
+      logger.error('Erro ao persistir sessão no PostgreSQL:', err);
+    }
+  }
+
+  public async persistQueueItem(item: QueueItem): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      await pgClient.query(
+        `INSERT INTO queue_items (
+          id, session_id, participant_id, participant_display_name, partner_participant_id,
+          partner_display_name, is_duet, music_id, music_title, music_artist, version_id,
+          version_style, youtube_video_id, tone_offset, status, order_index, queued_at,
+          called_at, call_expires_at, missed_turn_count, started_at, completed_at, error_message
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+        ON CONFLICT (id) DO UPDATE SET
+          status = EXCLUDED.status,
+          tone_offset = EXCLUDED.tone_offset,
+          order_index = EXCLUDED.order_index,
+          called_at = EXCLUDED.called_at,
+          call_expires_at = EXCLUDED.call_expires_at,
+          missed_turn_count = EXCLUDED.missed_turn_count,
+          started_at = EXCLUDED.started_at,
+          completed_at = EXCLUDED.completed_at,
+          error_message = EXCLUDED.error_message`,
+        [
+          item.id,
+          item.sessionId,
+          item.participantId,
+          item.participantDisplayName,
+          item.partnerParticipantId || null,
+          item.partnerDisplayName || null,
+          item.isDuet || false,
+          item.musicId,
+          item.musicTitle,
+          item.musicArtist,
+          item.versionId,
+          item.versionStyle,
+          item.youtubeVideoId,
+          item.toneOffset || 0,
+          item.status,
+          item.orderIndex,
+          item.queuedAt,
+          item.calledAt || null,
+          item.callExpiresAt || null,
+          item.missedTurnCount || 0,
+          item.startedAt || null,
+          item.completedAt || null,
+          item.errorMessage || null
+        ]
+      );
+    } catch (err) {
+      logger.error('Erro ao persistir item de fila no PostgreSQL:', err);
+    }
+  }
+
+  public async persistQueueReindex(): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      for (const item of this.queue) {
+        await pgClient.query('UPDATE queue_items SET order_index = $1, status = $2 WHERE id = $3', [
+          item.orderIndex,
+          item.status,
+          item.id
+        ]);
+      }
+    } catch (err) {
+      logger.error('Erro ao persistir reindexação da fila no PostgreSQL:', err);
+    }
+  }
+
+  public async persistPlaybackState(): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      await pgClient.query(
+        `INSERT INTO playback_states (session_id, current_queue_item_id, status, current_time_sec, volume, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (session_id) DO UPDATE SET
+           current_queue_item_id = EXCLUDED.current_queue_item_id,
+           status = EXCLUDED.status,
+           current_time_sec = EXCLUDED.current_time_sec,
+           volume = EXCLUDED.volume,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          this.session.id,
+          this.playbackState.currentQueueItemId,
+          this.playbackState.status,
+          this.playbackState.currentTimeSec,
+          this.playbackState.volume,
+          this.playbackState.updatedAt
+        ]
+      );
+    } catch (err) {
+      logger.error('Erro ao persistir playback state no PostgreSQL:', err);
+    }
+  }
+
+  public async persistParticipant(participant: Participant): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      await pgClient.query(
+        `INSERT INTO participants (id, session_id, identity_id, display_name, whatsapp, is_verified, verified_at, joined_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET
+           display_name = EXCLUDED.display_name,
+           is_verified = EXCLUDED.is_verified,
+           verified_at = EXCLUDED.verified_at`,
+        [
+          participant.id,
+          participant.sessionId,
+          participant.identityId || null,
+          participant.displayName,
+          participant.whatsapp || null,
+          participant.isVerified,
+          participant.verifiedAt || null,
+          participant.joinedAt
+        ]
+      );
+    } catch (err) {
+      logger.error('Erro ao persistir participante no PostgreSQL:', err);
+    }
+  }
+
+  public async persistLead(lead: Lead): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      await pgClient.query(
+        `INSERT INTO leads (id, name, normalized_whatsapp, establishment_id, first_participation, last_participation, participations_count, consent_marketing, consent_date, origin)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           last_participation = EXCLUDED.last_participation,
+           participations_count = EXCLUDED.participations_count,
+           consent_marketing = EXCLUDED.consent_marketing,
+           consent_date = EXCLUDED.consent_date`,
+        [
+          lead.id,
+          lead.name,
+          lead.normalizedWhatsapp,
+          lead.establishmentId,
+          lead.firstParticipation,
+          lead.lastParticipation,
+          lead.participationsCount,
+          lead.consentMarketing,
+          lead.consentDate || null,
+          lead.origin
+        ]
+      );
+    } catch (err) {
+      logger.error('Erro ao persistir lead no PostgreSQL:', err);
+    }
+  }
+
+  public async persistBranding(branding: EstablishmentBranding): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      await pgClient.query(
+        `INSERT INTO establishment_branding (
+          id, establishment_id, logo_url, business_name, slogan, primary_color, secondary_color,
+          accent_color, background_color, surface_color, text_color, theme_mode, tv_theme,
+          participant_theme, controller_theme, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ON CONFLICT (establishment_id) DO UPDATE SET
+          logo_url = EXCLUDED.logo_url,
+          business_name = EXCLUDED.business_name,
+          slogan = EXCLUDED.slogan,
+          primary_color = EXCLUDED.primary_color,
+          secondary_color = EXCLUDED.secondary_color,
+          accent_color = EXCLUDED.accent_color,
+          background_color = EXCLUDED.background_color,
+          surface_color = EXCLUDED.surface_color,
+          text_color = EXCLUDED.text_color,
+          theme_mode = EXCLUDED.theme_mode,
+          tv_theme = EXCLUDED.tv_theme,
+          participant_theme = EXCLUDED.participant_theme,
+          controller_theme = EXCLUDED.controller_theme,
+          updated_at = EXCLUDED.updated_at`,
+        [
+          branding.id,
+          branding.establishmentId,
+          branding.logoUrl || null,
+          branding.businessName,
+          branding.slogan || null,
+          branding.primaryColor,
+          branding.secondaryColor,
+          branding.accentColor,
+          branding.backgroundColor,
+          branding.surfaceColor,
+          branding.textColor,
+          branding.themeMode,
+          branding.tvTheme,
+          branding.participantTheme,
+          branding.controllerTheme,
+          branding.updatedAt
+        ]
+      );
+    } catch (err) {
+      logger.error('Erro ao persistir branding no PostgreSQL:', err);
+    }
+  }
+
+  public async recordTvReaction(participantId: string | undefined, emoji: string, label?: string): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      const id = 'reac-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+      await pgClient.query(
+        `INSERT INTO tv_reactions (id, session_id, participant_id, emoji, label)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [id, this.session.id, participantId || null, emoji, label || null]
+      );
+    } catch (err) {
+      logger.error('Erro ao gravar reação no PostgreSQL:', err);
+    }
+  }
+
+  public async recordSoundEffect(soundId: string, label: string, triggeredBy: string): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      const id = 'snd-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+      await pgClient.query(
+        `INSERT INTO sound_effects (id, session_id, sound_id, label, triggered_by)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [id, this.session.id, soundId, label, triggeredBy]
+      );
+    } catch (err) {
+      logger.error('Erro ao gravar efeito sonoro no PostgreSQL:', err);
+    }
   }
 
   private generate4DigitCode(): string {
@@ -808,6 +1241,23 @@ class VozPlayDB {
     };
     this.auditLogs.unshift(log);
     if (this.auditLogs.length > 200) this.auditLogs.pop();
+
+    logger.audit(`${action}: ${details}`, {
+      actorRole,
+      actorName,
+      sessionId: this.session.id,
+      establishmentId: this.session.establishmentId
+    });
+
+    if (pgClient.isConnected) {
+      pgClient.query(
+        `INSERT INTO audit_logs (id, session_id, actor_role, actor_name, action, details, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [log.id, log.sessionId, actorRole, actorName, action, details, log.timestamp]
+      ).catch(err => {
+        logger.error('Erro ao persistir log de auditoria no PostgreSQL:', err);
+      });
+    }
   }
 
   public addNotification(type: string, title: string, message: string, severity: 'info' | 'warning' | 'error' = 'info') {
@@ -903,6 +1353,7 @@ class VozPlayDB {
       `Música adicionada à fila rotativa (Ciclo ${targetRound}): ${music.title} (${version.style})`
     );
 
+    this.persistQueueItem(newItem);
     return newItem;
   }
 
@@ -913,6 +1364,7 @@ class VozPlayDB {
         item.orderIndex = activeIdx++;
       }
     }
+    this.persistQueueReindex();
   }
 
   /**
@@ -1000,6 +1452,9 @@ class VozPlayDB {
       `Chamada do participante: ${nextItem.participantDisplayName} para cantar "${nextItem.musicTitle}". Janela autoritativa de 30s iniciada.`
     );
 
+    this.persistQueueItem(nextItem);
+    this.persistPlaybackState();
+
     return this.callingState;
   }
 
@@ -1070,6 +1525,9 @@ class VozPlayDB {
       `Apresentação iniciada dentro do prazo ("Começar a Cantar"): ${queueItem.musicTitle}`
     );
 
+    this.persistQueueItem(queueItem);
+    this.persistPlaybackState();
+
     return { success: true, item: queueItem };
   }
 
@@ -1129,6 +1587,9 @@ class VozPlayDB {
         `Primeira perda de vez: ${item.participantDisplayName} não iniciou a música "${item.musicTitle}" em 30s. Mantido na fila como próximo elegível.`
       );
 
+      this.persistQueueItem(item);
+      this.persistPlaybackState();
+
       return {
         expired: true,
         item,
@@ -1169,6 +1630,9 @@ class VozPlayDB {
         `Item ${item.id} reposicionado ao fim da fila rotativa da sessão.`
       );
 
+      this.persistQueueItem(item);
+      this.persistPlaybackState();
+
       return {
         expired: true,
         item,
@@ -1191,12 +1655,14 @@ class VozPlayDB {
       item.status = 'QUEUED';
       item.calledAt = undefined;
       item.callExpiresAt = undefined;
+      this.persistQueueItem(item);
     }
 
     this.callingState = null;
     this.playbackState.status = 'IDLE';
     this.playbackState.currentQueueItemId = null;
     this.playbackState.updatedAt = new Date().toISOString();
+    this.persistPlaybackState();
 
     this.logAudit(
       actorRole as any,
@@ -1402,6 +1868,8 @@ class VozPlayDB {
       `Identidade visual do estabelecimento "${businessName}" atualizada. WCAG Compliant: ${accessibility.compliant}`
     );
 
+    this.persistBranding(updatedBranding);
+
     return {
       success: true,
       branding: updatedBranding,
@@ -1434,6 +1902,8 @@ class VozPlayDB {
       'BRANDING_RESET',
       `Identidade visual do estabelecimento restaurada para o padrão oficial do VozPlay.`
     );
+
+    this.persistBranding(resetBranding);
 
     return resetBranding;
   }

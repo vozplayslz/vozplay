@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { ActiveTab, Session } from '../../types.js';
 import { PWAInstallButton } from '../common/PWAInstallButton.js';
+import { VozPlayMascotIcon } from '../common/VozPlayLogo.js';
 
 interface AppHeaderProps {
   activeTab: ActiveTab;
@@ -61,6 +62,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         >
           <Menu className="w-5 h-5" />
         </button>
+
+        {/* Mobile Mascot Brand Icon */}
+        <div className="lg:hidden flex items-center flex-shrink-0">
+          <VozPlayMascotIcon
+            size={30}
+            animated
+            themeColor={session?.branding?.primaryColor}
+            themeMode={session?.branding?.themeMode === 'LIGHT' ? 'light' : 'dark'}
+          />
+        </div>
 
         {/* Current Active Section Breadcrumb */}
         <div className="flex items-center gap-2.5">

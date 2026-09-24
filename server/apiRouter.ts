@@ -13,8 +13,63 @@ import QRCode from 'qrcode';
 import { WishlistItem } from '../src/types.js';
 import { generateRecommendedPlaylist } from './geminiService.js';
 import { sanitizeSvgContent } from './brandingUtils.js';
+import { authService, requireRole, enforceTenantIsolation } from './auth.js';
+import { logger } from './logger.js';
 
 export const apiRouter = Router();
+
+// ==========================================
+// 0. AUTENTICAÇÃO E SESSÃO SEGURA (/api/v1/auth)
+// ==========================================
+apiRouter.post('/auth/login', async (req, res) => {
+  const { role, password, email, establishmentId, sessionId, participantId, displayName } = req.body;
+  const estId = establishmentId || db.session.establishmentId;
+  const sessId = sessionId || db.session.id;
+
+  // Login por e-mail e senha de usuário cadastrado
+  if (email && password) {
+    const user = authService.findUserByCredentials(email, password);
+    if (user) {
+      user.lastLogin = new Date().toISOString();
+      const tokenSession = await authService.createToken(user.role, estId, sessId, user.id, user.name, 24);
+      return res.json({ success: true, token: tokenSession.token, role: user.role, user: tokenSession });
+    }
+  }
+
+  if (role === 'SUPERVISOR') {
+    if (!authService.verifySupervisorPassword(password)) {
+      logger.security('Tentativa de login de Supervisor com senha inválida', { ip: req.ip, establishmentId: estId });
+      return res.status(401).json({ success: false, error: 'Senha de Supervisor incorreta.' });
+    }
+    const tokenSession = await authService.createToken('SUPERVISOR', estId, sessId, 'sup-admin', db.session.supervisorName, 24);
+    return res.json({ success: true, token: tokenSession.token, role: 'SUPERVISOR', user: tokenSession });
+  }
+
+  if (role === 'CONTROLLER') {
+    if (!authService.verifyControllerPassword(password)) {
+      logger.security('Tentativa de login de Controlador com credencial inválida', { ip: req.ip, establishmentId: estId });
+      return res.status(401).json({ success: false, error: 'Código de acesso do Controlador incorreto.' });
+    }
+    const tokenSession = await authService.createToken('CONTROLLER', estId, sessId, db.session.activeControllerId || 'ctrl-booth', db.session.activeControllerName || 'Operador', 12);
+    return res.json({ success: true, token: tokenSession.token, role: 'CONTROLLER', user: tokenSession });
+  }
+
+  if (role === 'TV') {
+    const tokenSession = await authService.createToken('TV', estId, sessId, 'tv-display', 'TV Telão Lounge', 24);
+    return res.json({ success: true, token: tokenSession.token, role: 'TV', user: tokenSession });
+  }
+
+  // PARTICIPANT (Default)
+  const tokenSession = await authService.createToken(
+    'PARTICIPANT',
+    estId,
+    sessId,
+    participantId || ('p-' + Date.now()),
+    displayName || 'Participante Convidado',
+    6
+  );
+  return res.json({ success: true, token: tokenSession.token, role: 'PARTICIPANT', user: tokenSession });
+});
 
 // ==========================================
 // 1. SESSÃO (/api/v1/session)
@@ -33,29 +88,32 @@ apiRouter.get('/session', (req, res) => {
   });
 });
 
-apiRouter.post('/session/start', (req, res) => {
+apiRouter.post('/session/start', requireRole(['SUPERVISOR']), async (req, res) => {
   db.session.status = 'ACTIVE';
   db.session.startedAt = new Date().toISOString();
-  db.logAudit('SUPERVISOR', db.session.supervisorName, 'SESSION_START', 'Sessão iniciada.');
+  db.logAudit('SUPERVISOR', req.user?.actorName || db.session.supervisorName, 'SESSION_START', 'Sessão iniciada.');
+  await db.persistSession(db.session);
   wsServer.broadcast('session.started', { session: db.session });
   res.json({ success: true, session: db.session });
 });
 
-apiRouter.post('/session/pause', (req, res) => {
+apiRouter.post('/session/pause', requireRole(['SUPERVISOR']), async (req, res) => {
   db.session.status = 'PAUSED';
-  db.logAudit('SUPERVISOR', db.session.supervisorName, 'SESSION_PAUSE', 'Sessão pausada temporariamente.');
+  db.logAudit('SUPERVISOR', req.user?.actorName || db.session.supervisorName, 'SESSION_PAUSE', 'Sessão pausada temporariamente.');
+  await db.persistSession(db.session);
   wsServer.broadcast('session.updated', { session: db.session });
   res.json({ success: true, session: db.session });
 });
 
-apiRouter.post('/session/resume', (req, res) => {
+apiRouter.post('/session/resume', requireRole(['SUPERVISOR']), async (req, res) => {
   db.session.status = 'ACTIVE';
-  db.logAudit('SUPERVISOR', db.session.supervisorName, 'SESSION_RESUME', 'Sessão retomada.');
+  db.logAudit('SUPERVISOR', req.user?.actorName || db.session.supervisorName, 'SESSION_RESUME', 'Sessão retomada.');
+  await db.persistSession(db.session);
   wsServer.broadcast('session.updated', { session: db.session });
   res.json({ success: true, session: db.session });
 });
 
-apiRouter.post('/session/extend', (req, res) => {
+apiRouter.post('/session/extend', requireRole(['SUPERVISOR']), async (req, res) => {
   const { minutes } = req.body;
   const extendMinutes = Number(minutes) || 15;
   const currentEnd = db.session.scheduledEndTime ? new Date(db.session.scheduledEndTime).getTime() : Date.now();
@@ -64,17 +122,18 @@ apiRouter.post('/session/extend', (req, res) => {
 
   db.logAudit(
     'SUPERVISOR',
-    db.session.supervisorName,
+    req.user?.actorName || db.session.supervisorName,
     'SESSION_EXTEND',
     `Sessão estendida em +${extendMinutes} minutos. Novo término: ${newEnd.toLocaleTimeString('pt-BR')}`
   );
 
   db.addNotification('session_extended', 'Sessão Estendida', `O encerramento foi postergado em +${extendMinutes} min.`, 'info');
+  await db.persistSession(db.session);
   wsServer.broadcast('session.updated', { session: db.session });
   res.json({ success: true, scheduledEndTime: db.session.scheduledEndTime });
 });
 
-apiRouter.post('/session/end', (req, res) => {
+apiRouter.post('/session/end', requireRole(['SUPERVISOR']), async (req, res) => {
   db.session.status = 'ENDED';
   db.session.endedAt = new Date().toISOString();
 
@@ -82,13 +141,16 @@ apiRouter.post('/session/end', (req, res) => {
   for (const item of db.queue) {
     if (item.status === 'QUEUED') {
       item.status = 'CANCELLED_SESSION_ENDED';
+      await db.persistQueueItem(item);
     }
   }
 
   db.playbackState.status = 'IDLE';
   db.playbackState.currentQueueItemId = null;
+  await db.persistPlaybackState();
 
-  db.logAudit('SUPERVISOR', db.session.supervisorName, 'SESSION_END', 'Sessão finalizada pelo Supervisor.');
+  db.logAudit('SUPERVISOR', req.user?.actorName || db.session.supervisorName, 'SESSION_END', 'Sessão finalizada pelo Supervisor.');
+  await db.persistSession(db.session);
   wsServer.broadcast('session.ended', { session: db.session });
   wsServer.broadcastAuthoritativeState();
   res.json({ success: true, session: db.session });
@@ -97,7 +159,7 @@ apiRouter.post('/session/end', (req, res) => {
 // ==========================================
 // 2. PARTICIPANTES (/api/v1/participants)
 // ==========================================
-apiRouter.post('/participants/register', (req, res) => {
+apiRouter.post('/participants/register', async (req, res) => {
   const { displayName, whatsapp, consentMarketing } = req.body;
 
   if (!displayName || !displayName.trim()) {
@@ -167,6 +229,12 @@ apiRouter.post('/participants/register', (req, res) => {
   db.playlists.set(pId, []);
   db.metrics.totalParticipants = db.participants.size;
 
+  await db.persistParticipant(participant);
+  if (normalizedWa) {
+    const lead = db.leads.get(normalizedWa);
+    if (lead) await db.persistLead(lead);
+  }
+
   db.logAudit('PARTICIPANT', participant.displayName, 'PARTICIPANT_JOIN', 'Participante entrou na sessão.');
   wsServer.broadcast('participant.joined', { participant: { id: participant.id, displayName: participant.displayName } });
 
@@ -177,7 +245,7 @@ apiRouter.post('/participants/register', (req, res) => {
   });
 });
 
-apiRouter.post('/participants/verify-presence', (req, res) => {
+apiRouter.post('/participants/verify-presence', async (req, res) => {
   const { participantId, code } = req.body;
   const participant = db.participants.get(participantId);
 
@@ -216,6 +284,7 @@ apiRouter.post('/participants/verify-presence', (req, res) => {
   db.presenceFailedAttempts.delete(ipKey);
   participant.isVerified = true;
   participant.verifiedAt = new Date().toISOString();
+  await db.persistParticipant(participant);
 
   db.logAudit('PARTICIPANT', participant.displayName, 'PRESENCE_VERIFIED', 'Presença física validada com sucesso.');
   wsServer.broadcast('participant.verified', { participantId: participant.id, displayName: participant.displayName });
@@ -582,7 +651,7 @@ apiRouter.get('/queue', (req, res) => {
   });
 });
 
-apiRouter.post('/queue/add', (req, res) => {
+apiRouter.post('/queue/add', async (req, res) => {
   const { participantId, musicId, versionId, playlistItemId, toneOffset, isDuet, partnerDisplayName, partnerParticipantId } = req.body;
 
   if (db.session.status !== 'ACTIVE') {
@@ -617,17 +686,19 @@ apiRouter.post('/queue/add', (req, res) => {
 
   const version = music.versions.find(v => v.id === versionId) || music.versions[0];
 
-  const queueItem = db.addSongToQueue(
-    participant,
-    music,
-    version,
-    Number(toneOffset) || 0,
-    {
-      isDuet: Boolean(isDuet),
-      partnerDisplayName: typeof partnerDisplayName === 'string' ? partnerDisplayName : undefined,
-      partnerParticipantId: typeof partnerParticipantId === 'string' ? partnerParticipantId : undefined
-    }
-  );
+  const queueItem = await db.queueMutex.runExclusive(async () => {
+    return db.addSongToQueue(
+      participant,
+      music,
+      version,
+      Number(toneOffset) || 0,
+      {
+        isDuet: Boolean(isDuet),
+        partnerDisplayName: typeof partnerDisplayName === 'string' ? partnerDisplayName : undefined,
+        partnerParticipantId: typeof partnerParticipantId === 'string' ? partnerParticipantId : undefined
+      }
+    );
+  });
 
   // If added from personal playlist, update playlist status
   if (playlistItemId) {
@@ -647,7 +718,7 @@ apiRouter.post('/queue/add', (req, res) => {
   });
 });
 
-apiRouter.post('/queue/request', (req, res) => {
+apiRouter.post('/queue/request', async (req, res) => {
   const {
     musicTitle,
     musicArtist,
@@ -688,8 +759,10 @@ apiRouter.post('/queue/request', (req, res) => {
       verifiedAt: new Date().toISOString()
     };
     db.participants.set(newId, participant);
+    await db.persistParticipant(participant);
   } else {
     participant.isVerified = true;
+    await db.persistParticipant(participant);
   }
 
   // Find existing music or create custom entry
@@ -729,16 +802,18 @@ apiRouter.post('/queue/request', (req, res) => {
     version = music.versions.find(v => v.style.toLowerCase() === (versionStyle || 'karaoke').toLowerCase()) || music.versions[0];
   }
 
-  const queueItem = db.addSongToQueue(
-    participant,
-    music,
-    version,
-    Number(toneOffset) || 0,
-    {
-      isDuet: Boolean(isDuet),
-      partnerDisplayName: typeof partnerDisplayName === 'string' ? partnerDisplayName : undefined
-    }
-  );
+  const queueItem = await db.queueMutex.runExclusive(async () => {
+    return db.addSongToQueue(
+      participant,
+      music,
+      version,
+      Number(toneOffset) || 0,
+      {
+        isDuet: Boolean(isDuet),
+        partnerDisplayName: typeof partnerDisplayName === 'string' ? partnerDisplayName : undefined
+      }
+    );
+  });
 
   wsServer.broadcast('queue.added', { item: queueItem });
   wsServer.broadcastAuthoritativeState();
@@ -750,20 +825,21 @@ apiRouter.post('/queue/request', (req, res) => {
   });
 });
 
-apiRouter.post('/queue/tune', (req, res) => {
+apiRouter.post('/queue/tune', async (req, res) => {
   const { queueItemId, toneOffset } = req.body;
   const item = db.queue.find(q => q.id === queueItemId);
   if (!item) {
     return res.status(404).json({ error: 'Item não encontrado na fila.' });
   }
   item.toneOffset = Math.max(-3, Math.min(3, Number(toneOffset) || 0));
+  await db.persistQueueItem(item);
   wsServer.broadcast('queue.updated', { item });
   wsServer.broadcastAuthoritativeState();
   res.json({ success: true, item });
 });
 
 
-apiRouter.post('/queue/cancel', (req, res) => {
+apiRouter.post('/queue/cancel', async (req, res) => {
   const { queueItemId, participantId } = req.body;
   const item = db.queue.find(q => q.id === queueItemId);
 
@@ -772,30 +848,41 @@ apiRouter.post('/queue/cancel', (req, res) => {
   }
 
   // A participant can only cancel their own song
-  if (participantId && item.participantId !== participantId) {
+  const callerParticipantId = req.user?.role === 'PARTICIPANT' ? req.user.actorId : participantId;
+  const isControllerOrSupervisor = req.user && (req.user.role === 'CONTROLLER' || req.user.role === 'SUPERVISOR');
+
+  if (!isControllerOrSupervisor && callerParticipantId && item.participantId !== callerParticipantId) {
+    logger.security('Tentativa não autorizada de cancelar música de terceiro', {
+      caller: callerParticipantId,
+      owner: item.participantId,
+      queueItemId
+    });
     return res.status(403).json({ error: 'Você só pode cancelar suas próprias músicas.' });
   }
 
   // Section 20: If already PLAYING, only controller/supervisor can cancel
-  if (item.status === 'PLAYING') {
+  if (item.status === 'PLAYING' && !isControllerOrSupervisor) {
     return res.status(400).json({
       error: 'Esta música já está sendo reproduzida na TV. Solicite ao Controlador ou Supervisor para pular.'
     });
   }
 
-  if (item.status !== 'QUEUED') {
-    return res.status(400).json({ error: 'Apenas músicas na fila de espera podem ser canceladas.' });
+  if (item.status !== 'QUEUED' && item.status !== 'PLAYING') {
+    return res.status(400).json({ error: 'Apenas músicas na fila de espera ou em reprodução podem ser canceladas.' });
   }
 
-  item.status = 'CANCELLED';
-  db.metrics.totalCancellations++;
-  db.reindexQueue();
+  await db.queueMutex.runExclusive(async () => {
+    item.status = 'CANCELLED';
+    db.metrics.totalCancellations++;
+    db.reindexQueue();
+    await db.persistQueueItem(item);
+  });
 
   db.logAudit(
-    'PARTICIPANT',
-    item.participantDisplayName,
+    req.user?.role || 'PARTICIPANT',
+    req.user?.actorName || item.participantDisplayName,
     'QUEUE_CANCEL',
-    `Música cancelada pelo participante: ${item.musicTitle}`
+    `Música cancelada: ${item.musicTitle}`
   );
 
   wsServer.broadcast('queue.cancelled', { queueItemId });
@@ -845,14 +932,14 @@ apiRouter.get('/queue/share/:queueItemId', (req, res) => {
 // ==========================================
 // 6. CONTROLADOR (/api/v1/controller)
 // ==========================================
-apiRouter.get('/controller/presence-code', (req, res) => {
+apiRouter.get('/controller/presence-code', requireRole(['CONTROLLER', 'SUPERVISOR']), (req, res) => {
   const code = db.getPresenceCode();
   res.json({ success: true, presenceCode: code });
 });
 
 // PRD: Chamar Próximo Participante (Janela de 30s)
-apiRouter.post('/controller/call-next', (req, res) => {
-  const call = db.callNextParticipant('CONTROLLER', db.session.activeControllerName || 'Controlador');
+apiRouter.post('/controller/call-next', requireRole(['CONTROLLER', 'SUPERVISOR']), (req, res) => {
+  const call = db.callNextParticipant('CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
   if (!call) {
     return res.status(400).json({
       success: false,
@@ -866,9 +953,9 @@ apiRouter.post('/controller/call-next', (req, res) => {
 });
 
 // PRD: Cancelar Chamada do Participante
-apiRouter.post('/controller/call-cancel', (req, res) => {
+apiRouter.post('/controller/call-cancel', requireRole(['CONTROLLER', 'SUPERVISOR']), (req, res) => {
   const { reason } = req.body;
-  const ok = db.cancelCall(reason || 'Cancelado pelo operador', 'CONTROLLER', db.session.activeControllerName || 'Controlador');
+  const ok = db.cancelCall(reason || 'Cancelado pelo operador', 'CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
   if (!ok) {
     return res.status(400).json({ success: false, error: 'Nenhuma chamada ativa para cancelar.' });
   }
@@ -956,7 +1043,7 @@ apiRouter.get('/lyrics/:musicId', (req, res) => {
   res.json({ success: true, lyrics });
 });
 
-apiRouter.post('/controller/play', (req, res) => {
+apiRouter.post('/controller/play', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
   let item = db.queue.find(q => q.status === 'PLAYING');
 
   if (!item) {
@@ -966,6 +1053,7 @@ apiRouter.post('/controller/play', (req, res) => {
       item.status = 'PLAYING';
       item.startedAt = new Date().toISOString();
       db.playbackState.currentQueueItemId = item.id;
+      await db.persistQueueItem(item);
     }
   }
 
@@ -975,10 +1063,11 @@ apiRouter.post('/controller/play', (req, res) => {
 
   db.playbackState.status = 'PLAYING';
   db.playbackState.updatedAt = new Date().toISOString();
+  await db.persistPlaybackState();
 
   db.logAudit(
     'CONTROLLER',
-    db.session.activeControllerName || 'Controlador',
+    req.user?.actorName || db.session.activeControllerName || 'Controlador',
     'PLAYER_PLAY',
     `Iniciada reprodução: ${item.musicTitle} (${item.participantDisplayName})`
   );
@@ -988,13 +1077,14 @@ apiRouter.post('/controller/play', (req, res) => {
   res.json({ success: true, item, playbackState: db.playbackState });
 });
 
-apiRouter.post('/controller/pause', (req, res) => {
+apiRouter.post('/controller/pause', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
   db.playbackState.status = 'PAUSED';
   db.playbackState.updatedAt = new Date().toISOString();
+  await db.persistPlaybackState();
 
   db.logAudit(
     'CONTROLLER',
-    db.session.activeControllerName || 'Controlador',
+    req.user?.actorName || db.session.activeControllerName || 'Controlador',
     'PLAYER_PAUSE',
     'Reprodução pausada pelo controlador.'
   );
@@ -1004,15 +1094,16 @@ apiRouter.post('/controller/pause', (req, res) => {
   res.json({ success: true, playbackState: db.playbackState });
 });
 
-apiRouter.post('/controller/next', (req, res) => {
+apiRouter.post('/controller/next', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
   const currentItem = db.queue.find(q => q.status === 'PLAYING');
   if (currentItem) {
     currentItem.status = 'COMPLETED';
     currentItem.completedAt = new Date().toISOString();
     db.metrics.totalSkips++;
+    await db.persistQueueItem(currentItem);
     db.logAudit(
       'CONTROLLER',
-      db.session.activeControllerName || 'Controlador',
+      req.user?.actorName || db.session.activeControllerName || 'Controlador',
       'PLAYER_SKIP',
       `Música pulada/avançada: ${currentItem.musicTitle}`
     );
@@ -1020,42 +1111,46 @@ apiRouter.post('/controller/next', (req, res) => {
 
   // Se havia chamada ativa, cancela
   if (db.callingState) {
-    db.cancelCall('Avançado pelo controlador', 'CONTROLLER', db.session.activeControllerName || 'Controlador');
+    db.cancelCall('Avançado pelo controlador', 'CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
   }
 
   // Dispara chamada do próximo participante se houver música na fila
   const nextItem = db.queue.find(q => q.status === 'QUEUED');
   if (nextItem && db.session.status === 'ACTIVE') {
-    const call = db.callNextParticipant('CONTROLLER', db.session.activeControllerName || 'Controlador');
+    const call = db.callNextParticipant('CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
     if (call) {
       wsServer.broadcast('participant.turn_called', { callingState: call });
     }
   } else {
     db.playbackState.currentQueueItemId = null;
     db.playbackState.status = 'IDLE';
+    await db.persistPlaybackState();
     wsServer.broadcast('queue.completed', { item: currentItem });
   }
 
   db.playbackState.updatedAt = new Date().toISOString();
+  await db.persistPlaybackState();
   wsServer.broadcastAuthoritativeState();
   res.json({ success: true, callingState: db.callingState, playbackState: db.playbackState });
 });
 
-apiRouter.post('/controller/report-error', (req, res) => {
+apiRouter.post('/controller/report-error', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
   const { errorReason } = req.body;
   const currentItem = db.queue.find(q => q.status === 'PLAYING');
 
   if (currentItem) {
     currentItem.status = 'ERROR';
     currentItem.errorMessage = errorReason || 'Erro reportado pelo controlador';
+    await db.persistQueueItem(currentItem);
   }
 
   db.playbackState.status = 'ERROR';
   db.metrics.playbackErrors++;
+  await db.persistPlaybackState();
 
   db.logAudit(
     'CONTROLLER',
-    db.session.activeControllerName || 'Controlador',
+    req.user?.actorName || db.session.activeControllerName || 'Controlador',
     'PLAYBACK_ERROR',
     `Erro registrado: ${errorReason || 'Falha de reprodução'}`
   );
@@ -1073,27 +1168,31 @@ apiRouter.post('/controller/report-error', (req, res) => {
 });
 
 // PRD Seção 25: Erro de Reprodução - Reenfileirar com prioridade sem punir o participante
-apiRouter.post('/controller/requeue-error', (req, res) => {
+apiRouter.post('/controller/requeue-error', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
   const currentItem = db.queue.find(q => q.status === 'ERROR' || q.status === 'PLAYING');
   if (!currentItem) {
     return res.status(404).json({ error: 'Nenhuma música com erro ou em reprodução para reenfileirar.' });
   }
 
-  currentItem.status = 'QUEUED';
-  currentItem.errorMessage = undefined;
+  await db.queueMutex.runExclusive(async () => {
+    currentItem.status = 'QUEUED';
+    currentItem.errorMessage = undefined;
 
-  // Move to the front of queued items
-  const activeQueued = db.queue.filter(q => q.id !== currentItem.id && q.status === 'QUEUED');
-  const otherItems = db.queue.filter(q => q.id !== currentItem.id && q.status !== 'QUEUED');
-  db.queue = [...otherItems, currentItem, ...activeQueued];
-  db.reindexQueue();
+    // Move to the front of queued items
+    const activeQueued = db.queue.filter(q => q.id !== currentItem.id && q.status === 'QUEUED');
+    const otherItems = db.queue.filter(q => q.id !== currentItem.id && q.status !== 'QUEUED');
+    db.queue = [...otherItems, currentItem, ...activeQueued];
+    db.reindexQueue();
 
-  db.playbackState.status = 'IDLE';
-  db.playbackState.currentQueueItemId = null;
+    db.playbackState.status = 'IDLE';
+    db.playbackState.currentQueueItemId = null;
+    await db.persistQueueItem(currentItem);
+    await db.persistPlaybackState();
+  });
 
   db.logAudit(
     'CONTROLLER',
-    db.session.activeControllerName || 'Controlador',
+    req.user?.actorName || db.session.activeControllerName || 'Controlador',
     'REQUEUE_ERROR',
     `Música reenfileirada no topo da fila após falha técnica: ${currentItem.musicTitle} (${currentItem.participantDisplayName})`
   );
@@ -1104,7 +1203,7 @@ apiRouter.post('/controller/requeue-error', (req, res) => {
 });
 
 // PRD Seção 20 & 24: Operador - Promover música para o topo da fila (Próxima a Tocar)
-apiRouter.post('/controller/queue/promote', (req, res) => {
+apiRouter.post('/controller/queue/promote', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
   const { queueItemId } = req.body;
   const itemIndex = db.queue.findIndex(q => q.id === queueItemId);
   if (itemIndex === -1) {
@@ -1116,22 +1215,24 @@ apiRouter.post('/controller/queue/promote', (req, res) => {
     return res.status(400).json({ error: 'Apenas músicas na fila podem ser promovidas.' });
   }
 
-  // Remove from current position
-  db.queue.splice(itemIndex, 1);
+  await db.queueMutex.runExclusive(async () => {
+    // Remove from current position
+    db.queue.splice(itemIndex, 1);
 
-  // Insert right at the first position among queued items
-  const firstQueuedIndex = db.queue.findIndex(q => q.status === 'QUEUED');
-  if (firstQueuedIndex === -1) {
-    db.queue.push(item);
-  } else {
-    db.queue.splice(firstQueuedIndex, 0, item);
-  }
+    // Insert right at the first position among queued items
+    const firstQueuedIndex = db.queue.findIndex(q => q.status === 'QUEUED');
+    if (firstQueuedIndex === -1) {
+      db.queue.push(item);
+    } else {
+      db.queue.splice(firstQueuedIndex, 0, item);
+    }
 
-  db.reindexQueue();
+    db.reindexQueue();
+  });
 
   db.logAudit(
     'CONTROLLER',
-    db.session.activeControllerName || 'Controlador',
+    req.user?.actorName || db.session.activeControllerName || 'Controlador',
     'QUEUE_PROMOTE',
     `Música promovida para o topo da fila: ${item.musicTitle} (${item.participantDisplayName})`
   );
@@ -1147,7 +1248,7 @@ apiRouter.post('/controller/queue/promote', (req, res) => {
 });
 
 // PRD Seção 20 & 24: Operador - Remover música da fila (desistência ou ausência de participante)
-apiRouter.post('/controller/queue/remove', (req, res) => {
+apiRouter.post('/controller/queue/remove', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
   const { queueItemId, reason } = req.body;
   const item = db.queue.find(q => q.id === queueItemId);
   if (!item) {
@@ -1158,12 +1259,15 @@ apiRouter.post('/controller/queue/remove', (req, res) => {
     return res.status(400).json({ error: 'A música está tocando agora. Use a opção de Pular no player.' });
   }
 
-  item.status = 'CANCELLED';
-  db.reindexQueue();
+  await db.queueMutex.runExclusive(async () => {
+    item.status = 'CANCELLED';
+    db.reindexQueue();
+    await db.persistQueueItem(item);
+  });
 
   db.logAudit(
     'CONTROLLER',
-    db.session.activeControllerName || 'Controlador',
+    req.user?.actorName || db.session.activeControllerName || 'Controlador',
     'QUEUE_REMOVE',
     `Música removida pelo operador (${reason || 'Participante ausente'}): ${item.musicTitle} (${item.participantDisplayName})`
   );
@@ -1178,17 +1282,18 @@ apiRouter.post('/controller/queue/remove', (req, res) => {
   });
 });
 
-apiRouter.post('/controller/volume', (req, res) => {
+apiRouter.post('/controller/volume', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
   const { volume, muted } = req.body;
   if (typeof volume === 'number') {
     db.playbackState.volume = Math.max(0, Math.min(100, Math.round(volume)));
   }
+  await db.persistPlaybackState();
   wsServer.broadcast('player.volume', { volume: db.playbackState.volume, muted: Boolean(muted) });
   res.json({ success: true, volume: db.playbackState.volume });
 });
 
 // Section 47: DJ Soundboard Trigger (Mesa do Operador)
-apiRouter.post('/controller/soundboard', (req, res) => {
+apiRouter.post('/controller/soundboard', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
   const { soundType, label } = req.body;
   const payload = {
     id: 'sb-' + Date.now(),
@@ -1198,16 +1303,17 @@ apiRouter.post('/controller/soundboard', (req, res) => {
   };
   db.logAudit(
     'CONTROLLER',
-    db.session.activeControllerName || 'Operador',
+    req.user?.actorName || db.session.activeControllerName || 'Operador',
     'SOUNDBOARD_TRIGGER',
     `Efeito sonoro acionado: ${payload.label}`
   );
+  await db.recordSoundEffect(payload.soundType, payload.label, req.user?.actorName || 'Operador');
   wsServer.broadcast('soundboard.play', payload);
   res.json({ success: true, payload });
 });
 
 // Section 48: Interação da Plateia em Tempo Real (Reações ao Vivo)
-apiRouter.post('/reactions', (req, res) => {
+apiRouter.post('/reactions', async (req, res) => {
   const { participantName, emoji, label } = req.body;
   const reaction = {
     id: 'rx-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
@@ -1216,6 +1322,7 @@ apiRouter.post('/reactions', (req, res) => {
     label: label || 'Aplausos',
     timestamp: new Date().toISOString()
   };
+  await db.recordTvReaction(req.user?.actorId, reaction.emoji, reaction.label);
   wsServer.broadcast('reaction.sent', reaction);
   res.json({ success: true, reaction });
 });
@@ -1223,7 +1330,7 @@ apiRouter.post('/reactions', (req, res) => {
 // ==========================================
 // 7. SUPERVISOR / CAIXA (/api/v1/supervisor)
 // ==========================================
-apiRouter.post('/supervisor/broadcast-alert', (req, res) => {
+apiRouter.post('/supervisor/broadcast-alert', requireRole(['SUPERVISOR']), (req, res) => {
   const { message, level } = req.body;
   if (!message || !message.trim()) {
     db.sessionAlert = null;
@@ -1236,13 +1343,13 @@ apiRouter.post('/supervisor/broadcast-alert', (req, res) => {
     };
   }
 
-  db.logAudit('SUPERVISOR', db.session.supervisorName, 'BROADCAST_ALERT', `Aviso transmitido à TV: ${message || 'Alerta limpo'}`);
+  db.logAudit('SUPERVISOR', req.user?.actorName || db.session.supervisorName, 'BROADCAST_ALERT', `Aviso transmitido à TV: ${message || 'Alerta limpo'}`);
   wsServer.broadcast('session.alert', { sessionAlert: db.sessionAlert });
   wsServer.broadcastAuthoritativeState();
   res.json({ success: true, sessionAlert: db.sessionAlert });
 });
 
-apiRouter.get('/analytics', (req, res) => {
+apiRouter.get('/analytics', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
   const genreCount: Record<string, number> = {};
   for (const m of db.catalog) {
     genreCount[m.genre] = (genreCount[m.genre] || 0) + 1;
@@ -1276,17 +1383,17 @@ apiRouter.get('/analytics', (req, res) => {
 });
 
 // Section 31: Emergency Takeover
-apiRouter.post('/supervisor/takeover', (req, res) => {
+apiRouter.post('/supervisor/takeover', requireRole(['SUPERVISOR']), async (req, res) => {
   const oldController = db.session.activeControllerName;
   db.session.activeControllerId = 'supervisor-emergency';
-  db.session.activeControllerName = `${db.session.supervisorName} (Controle de Emergência)`;
+  db.session.activeControllerName = `${req.user?.actorName || db.session.supervisorName} (Controle de Emergência)`;
 
   // Old presence code is invalidated; new presence code generated immediately
   const newCode = db.generateNewPresenceCode();
 
   db.logAudit(
     'SUPERVISOR',
-    db.session.supervisorName,
+    req.user?.actorName || db.session.supervisorName,
     'EMERGENCY_TAKEOVER',
     `Supervisor assumiu o controle emergencial. Controlador anterior (${oldController}) revogado.`
   );
@@ -1297,6 +1404,8 @@ apiRouter.post('/supervisor/takeover', (req, res) => {
     `O Supervisor assumiu o controle direto da sessão. O código de presença foi renovado.`,
     'warning'
   );
+
+  await db.persistSession(db.session);
 
   wsServer.broadcast('controller.revoked', { message: 'Controlador revogado pelo Supervisor' });
   wsServer.broadcast('controller.assigned', {
@@ -1314,7 +1423,7 @@ apiRouter.post('/supervisor/takeover', (req, res) => {
   });
 });
 
-apiRouter.post('/supervisor/authorize-controller', (req, res) => {
+apiRouter.post('/supervisor/authorize-controller', requireRole(['SUPERVISOR']), async (req, res) => {
   const { controllerName } = req.body;
   if (!controllerName || !controllerName.trim()) {
     return res.status(400).json({ error: 'Nome do controlador é obrigatório.' });
@@ -1329,10 +1438,12 @@ apiRouter.post('/supervisor/authorize-controller', (req, res) => {
 
   db.logAudit(
     'SUPERVISOR',
-    db.session.supervisorName,
+    req.user?.actorName || db.session.supervisorName,
     'CONTROLLER_ASSIGN',
     `Novo controlador autorizado: ${controllerName.trim()}. Anterior: ${oldController || 'Nenhum'}`
   );
+
+  await db.persistSession(db.session);
 
   wsServer.broadcast('controller.changed', {
     controllerId: db.session.activeControllerId,
@@ -1348,7 +1459,7 @@ apiRouter.post('/supervisor/authorize-controller', (req, res) => {
   });
 });
 
-apiRouter.post('/supervisor/revoke-controller', (req, res) => {
+apiRouter.post('/supervisor/revoke-controller', requireRole(['SUPERVISOR']), async (req, res) => {
   const oldName = db.session.activeControllerName;
   db.session.activeControllerId = undefined;
   db.session.activeControllerName = undefined;
@@ -1358,10 +1469,12 @@ apiRouter.post('/supervisor/revoke-controller', (req, res) => {
 
   db.logAudit(
     'SUPERVISOR',
-    db.session.supervisorName,
+    req.user?.actorName || db.session.supervisorName,
     'CONTROLLER_REVOKE',
     `Controlador revogado: ${oldName}`
   );
+
+  await db.persistSession(db.session);
 
   wsServer.broadcast('controller.revoked', { message: 'Controlador revogado.' });
   wsServer.broadcastAuthoritativeState();
@@ -1369,30 +1482,84 @@ apiRouter.post('/supervisor/revoke-controller', (req, res) => {
   res.json({ success: true, message: 'Controlador revogado com sucesso.' });
 });
 
-apiRouter.get('/supervisor/audit-logs', (req, res) => {
+apiRouter.get('/supervisor/audit-logs', requireRole(['SUPERVISOR']), (req, res) => {
   res.json({ success: true, logs: db.auditLogs });
 });
 
-apiRouter.get('/supervisor/notifications', (req, res) => {
+apiRouter.get('/supervisor/notifications', requireRole(['SUPERVISOR']), (req, res) => {
   res.json({ success: true, notifications: db.notifications });
 });
 
 // Section 12: QR Code Público da Unidade
-apiRouter.get('/supervisor/qrcode', async (req, res) => {
-  try {
-    const targetUrl = `https://vozplay.ai.slz.br/join?s=${db.session.code}`;
-    const qrDataUrl = await QRCode.toDataURL(targetUrl, {
-      width: 400,
-      margin: 2,
-      color: {
-        dark: '#020617',
-        light: '#ffffff'
-      }
-    });
-    res.json({ success: true, qrDataUrl, targetUrl, sessionCode: db.session.code });
-  } catch (err) {
+apiRouter.get('/supervisor/qrcode', (req, res) => {
+  QRCode.toDataURL(`https://vozplay.ai.slz.br/join?s=${db.session.code}`, {
+    width: 400,
+    margin: 2,
+    color: {
+      dark: '#020617',
+      light: '#ffffff'
+    }
+  }).then(qrDataUrl => {
+    res.json({ success: true, qrDataUrl, targetUrl: `https://vozplay.ai.slz.br/join?s=${db.session.code}`, sessionCode: db.session.code });
+  }).catch(() => {
     res.status(500).json({ error: 'Falha ao gerar QR Code' });
+  });
+});
+
+// Section 47 & RBAC: Gestão de Usuários Operacionais e Credenciais
+apiRouter.get('/supervisor/users', requireRole(['SUPERVISOR']), async (req, res) => {
+  const users = authService.getOperationalUsers();
+  res.json({
+    success: true,
+    data: {
+      users,
+      total: users.length
+    }
+  });
+});
+
+apiRouter.post('/supervisor/users', requireRole(['SUPERVISOR']), async (req, res) => {
+  const { name, email, role, password } = req.body;
+  if (!name || !email || !role || !password) {
+    return res.status(400).json({ success: false, error: 'Nome, e-mail, papel e senha são obrigatórios.' });
   }
+  if (!['SUPERVISOR', 'CONTROLLER'].includes(role)) {
+    return res.status(400).json({ success: false, error: 'Papel inválido. Deve ser SUPERVISOR ou CONTROLLER.' });
+  }
+  if (password.length < 4) {
+    return res.status(400).json({ success: false, error: 'A senha deve possuir no mínimo 4 caracteres.' });
+  }
+
+  const user = authService.createOperationalUser({ name, email, role, password });
+  res.json({ success: true, user, message: 'Usuário cadastrado com sucesso.' });
+});
+
+apiRouter.delete('/supervisor/users/:id', requireRole(['SUPERVISOR']), async (req, res) => {
+  const { id } = req.params;
+  const ok = authService.deleteOperationalUser(id);
+  if (!ok) {
+    return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+  }
+  res.json({ success: true, message: 'Usuário removido com sucesso.' });
+});
+
+apiRouter.post('/supervisor/change-password', requireRole(['SUPERVISOR']), async (req, res) => {
+  const { targetRole, newPassword } = req.body;
+  if (!targetRole || !newPassword) {
+    return res.status(400).json({ success: false, error: 'Papel e nova senha são obrigatórios.' });
+  }
+  if (!['SUPERVISOR', 'CONTROLLER'].includes(targetRole)) {
+    return res.status(400).json({ success: false, error: 'Papel inválido.' });
+  }
+  if (newPassword.length < 4) {
+    return res.status(400).json({ success: false, error: 'A nova senha deve possuir no mínimo 4 caracteres.' });
+  }
+
+  authService.updateMasterPassword(targetRole, newPassword);
+  res.json({
+    success: true,
+    message: `Senha de acesso para ${targetRole === 'SUPERVISOR' ? 'Supervisor/Administrador' : 'Controlador (Mesa de Som)'} atualizada com sucesso.`
+  });
 });
 
 // ==========================================
@@ -1413,7 +1580,7 @@ apiRouter.post('/tv/heartbeat', (req, res) => {
 // ==========================================
 // 9. LEADS (/api/v1/leads)
 // ==========================================
-apiRouter.get('/leads', (req, res) => {
+apiRouter.get('/leads', requireRole(['SUPERVISOR']), (req, res) => {
   const leadsArray = Array.from(db.leads.values());
   res.json({
     success: true,
@@ -1422,7 +1589,7 @@ apiRouter.get('/leads', (req, res) => {
   });
 });
 
-apiRouter.get(['/leads/export', '/leads/export.csv'], (req, res) => {
+apiRouter.get(['/leads/export', '/leads/export.csv'], requireRole(['SUPERVISOR']), (req, res) => {
   const leadsArray = Array.from(db.leads.values());
   const header = 'Nome,WhatsApp,Participacoes,PrimeiraVisita,UltimaVisita,ConsentimentoMarketing\n';
   const rows = leadsArray
@@ -1511,7 +1678,7 @@ apiRouter.get('/establishment/branding', (req, res) => {
 });
 
 // PUT /api/v1/establishment/branding - Atualiza configurações de branding com validação WCAG
-apiRouter.put('/establishment/branding', (req, res) => {
+apiRouter.put('/establishment/branding', requireRole(['SUPERVISOR']), (req, res) => {
   const establishmentId = db.session.establishmentId;
   const payload = req.body || {};
 
@@ -1540,7 +1707,7 @@ apiRouter.put('/establishment/branding', (req, res) => {
 });
 
 // POST /api/v1/establishment/branding/logo - Upload seguro de logo (PNG, JPEG, WebP, SVG sanitizado)
-apiRouter.post('/establishment/branding/logo', (req, res) => {
+apiRouter.post('/establishment/branding/logo', requireRole(['SUPERVISOR']), (req, res) => {
   const establishmentId = db.session.establishmentId;
   const { logoData } = req.body || {};
 
@@ -1607,7 +1774,7 @@ apiRouter.post('/establishment/branding/logo', (req, res) => {
 });
 
 // DELETE /api/v1/establishment/branding/logo - Remove a logo e volta para a padrão
-apiRouter.delete('/establishment/branding/logo', (req, res) => {
+apiRouter.delete('/establishment/branding/logo', requireRole(['SUPERVISOR']), (req, res) => {
   const establishmentId = db.session.establishmentId;
   const result = db.updateBranding(establishmentId, { logoUrl: '' });
 
@@ -1623,7 +1790,7 @@ apiRouter.delete('/establishment/branding/logo', (req, res) => {
 });
 
 // POST /api/v1/establishment/branding/reset - Restaura para a identidade padrão do VozPlay
-apiRouter.post('/establishment/branding/reset', (req, res) => {
+apiRouter.post('/establishment/branding/reset', requireRole(['SUPERVISOR']), (req, res) => {
   const establishmentId = db.session.establishmentId;
   const resetBranding = db.resetBranding(establishmentId);
 

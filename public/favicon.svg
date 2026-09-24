@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 6 172 172" width="128" height="128">
+  <defs>
+    <!-- Gradiente do Corpo do Polvo 3D Oficial VozPlay -->
+    <radialGradient id="favOctoBody" cx="40%" cy="30%" r="70%" fx="35%" fy="25%">
+      <stop offset="0%" stop-color="#60A5FA" />
+      <stop offset="25%" stop-color="#2563EB" />
+      <stop offset="70%" stop-color="#1D4ED8" />
+      <stop offset="100%" stop-color="#1E3A8A" />
+    </radialGradient>
+
+    <!-- Brilho Especular da Cabeça -->
+    <linearGradient id="favHeadGloss" x1="0%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.85" />
+      <stop offset="40%" stop-color="#93C5FD" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#3B82F6" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- Gradiente das Ventosas -->
+    <radialGradient id="favSuckerGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#A5F3FC" />
+      <stop offset="60%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#0284C7" />
+    </radialGradient>
+
+    <!-- Gradiente do Microfone Metálico -->
+    <linearGradient id="favMicMetal" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#64748B" />
+      <stop offset="25%" stop-color="#CBD5E1" />
+      <stop offset="50%" stop-color="#FFFFFF" />
+      <stop offset="75%" stop-color="#94A3B8" />
+      <stop offset="100%" stop-color="#475569" />
+    </linearGradient>
+
+    <!-- Suporte do Microfone -->
+    <linearGradient id="favMicBody" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155" />
+      <stop offset="100%" stop-color="#0F172A" />
+    </linearGradient>
+
+    <!-- Gradiente das Ondas Sonoras -->
+    <linearGradient id="favWaveGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#60A5FA" />
+    </linearGradient>
+
+    <!-- Sombra para contraste perfeito em abas claras ou escuras -->
+    <filter id="favDropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.55" />
+    </filter>
+  </defs>
+
+  <style>
+    @media (prefers-color-scheme: light) {
+      .fav-shadow {
+        filter: drop-shadow(0px 3px 5px rgba(15, 23, 42, 0.45));
+      }
+    }
+    @media (prefers-color-scheme: dark) {
+      .fav-shadow {
+        filter: drop-shadow(0px 4px 10px rgba(37, 99, 235, 0.5));
+      }
+    }
+  </style>
+
+  <g class="fav-shadow" filter="url(#favDropShadow)">
+    <!-- ONDAS SONORAS (Karaokê VozPlay) -->
+    <path
+      d="M 125 35 C 135 25 148 23 158 31"
+      stroke="url(#favWaveGrad)"
+      stroke-width="7"
+      stroke-linecap="round"
+      fill="none"
+    />
+    <path
+      d="M 135 18 C 152 7 172 10 184 24"
+      stroke="url(#favWaveGrad)"
+      stroke-width="8"
+      stroke-linecap="round"
+      fill="none"
+    />
+
+    <!-- TENTÁCULOS TRASEIROS -->
+    <path
+      d="M 46 115 C 30 110 15 125 22 140 C 28 152 48 145 56 132"
+      fill="#1E40AF"
+    />
+    <path
+      d="M 140 120 C 155 120 168 132 162 148 C 156 158 138 152 132 138"
+      fill="#1E40AF"
+    />
+
+    <!-- TENTÁCULOS FRONTAIS -->
+    <!-- Tentáculo 1 - Esquerdo -->
+    <path
+      d="M 60 118 C 40 115 20 128 25 148 C 29 164 54 162 65 142 C 68 135 70 126 65 120 Z"
+      fill="url(#favOctoBody)"
+    />
+    <circle cx="32" cy="142" r="5" fill="url(#favSuckerGlow)" />
+    <circle cx="44" cy="153" r="5.5" fill="url(#favSuckerGlow)" />
+    <circle cx="56" cy="148" r="5" fill="url(#favSuckerGlow)" />
+
+    <!-- Tentáculo 2 - Inferior Esquerdo -->
+    <path
+      d="M 70 128 C 55 142 45 160 62 172 C 78 178 95 162 88 142 Z"
+      fill="url(#favOctoBody)"
+    />
+    <circle cx="58" cy="162" r="5.5" fill="url(#favSuckerGlow)" />
+    <circle cx="70" cy="168" r="6" fill="url(#favSuckerGlow)" />
+    <circle cx="83" cy="162" r="5.5" fill="url(#favSuckerGlow)" />
+
+    <!-- Tentáculo 3 - Inferior Direito -->
+    <path
+      d="M 112 128 C 127 142 137 160 120 172 C 104 178 88 162 94 142 Z"
+      fill="url(#favOctoBody)"
+    />
+    <circle cx="124" cy="162" r="5.5" fill="url(#favSuckerGlow)" />
+    <circle cx="112" cy="168" r="6" fill="url(#favSuckerGlow)" />
+    <circle cx="99" cy="162" r="5.5" fill="url(#favSuckerGlow)" />
+
+    <!-- Tentáculo 4 - Direito -->
+    <path
+      d="M 125 118 C 138 116 150 125 152 138 C 153 148 144 154 135 150 C 126 145 124 132 122 122 Z"
+      fill="url(#favOctoBody)"
+    />
+    <circle cx="145" cy="132" r="5" fill="url(#favSuckerGlow)" />
+    <circle cx="146" cy="144" r="4.5" fill="url(#favSuckerGlow)" />
+
+    <!-- CABEÇA DO POLVO CANTOR -->
+    <ellipse cx="96" cy="85" rx="58" ry="56" fill="url(#favOctoBody)" />
+    <ellipse cx="78" cy="54" rx="34" ry="24" fill="url(#favHeadGloss)" transform="rotate(-15 78 54)" />
+    <circle cx="68" cy="46" r="9" fill="#FFFFFF" opacity="0.75" />
+
+    <!-- OLHOS EXPRESSIVOS 3D -->
+    <ellipse cx="76" cy="88" rx="15" ry="19" fill="#0A0F1D" />
+    <circle cx="72" cy="82" r="7" fill="#FFFFFF" />
+    <circle cx="81" cy="94" r="3" fill="#FFFFFF" />
+
+    <ellipse cx="116" cy="88" rx="15" ry="19" fill="#0A0F1D" />
+    <circle cx="112" cy="82" r="7" fill="#FFFFFF" />
+    <circle cx="121" cy="94" r="3" fill="#FFFFFF" />
+
+    <!-- Sobrancelhas -->
+    <path d="M 68 66 C 72 62 82 63 85 66" stroke="#1E3A8A" stroke-width="3.5" stroke-linecap="round" fill="none" />
+    <path d="M 108 66 C 111 62 121 63 124 66" stroke="#1E3A8A" stroke-width="3.5" stroke-linecap="round" fill="none" />
+
+    <!-- BOCA CANTORA FELIZ -->
+    <path
+      d="M 88 108 C 88 108 96 117 104 108 C 105 116 97 122 96 122 C 95 122 87 116 88 108 Z"
+      fill="#831843"
+    />
+    <path
+      d="M 91 116 C 94 113 98 113 101 116 C 99 120 93 120 91 116 Z"
+      fill="#F472B6"
+    />
+
+    <!-- Tentáculo segurando o microfone -->
+    <g transform="translate(136, 92)">
+      <path
+        d="M -10 18 C 0 10 16 15 16 28 C 16 38 -2 38 -8 24 Z"
+        fill="url(#favOctoBody)"
+      />
+      <circle cx="10" cy="24" r="5" fill="url(#favSuckerGlow)" />
+    </g>
+
+    <!-- MICROFONE VINTAGE SHURE STYLE -->
+    <g transform="translate(142, 60)">
+      <path
+        d="M -5 32 C -8 44 26 44 23 32"
+        fill="none"
+        stroke="url(#favMicBody)"
+        stroke-width="4.5"
+        stroke-linecap="round"
+      />
+      <line x1="9" y1="40" x2="9" y2="52" stroke="url(#favMicBody)" stroke-width="5" stroke-linecap="round" />
+      <rect x="-2" y="2" width="22" height="34" rx="11" fill="url(#favMicMetal)" stroke="#334155" stroke-width="1.5" />
+      <line x1="0" y1="8" x2="18" y2="8" stroke="#1E293B" stroke-width="2" />
+      <line x1="-1" y1="13" x2="19" y2="13" stroke="#1E293B" stroke-width="2" />
+      <line x1="-2" y1="18" x2="20" y2="18" stroke="#1E293B" stroke-width="2.5" />
+      <line x1="-1" y1="23" x2="19" y2="23" stroke="#1E293B" stroke-width="2" />
+      <line x1="0" y1="28" x2="18" y2="28" stroke="#1E293B" stroke-width="2" />
+      <line x1="9" y1="4" x2="9" y2="34" stroke="#0F172A" stroke-width="1.5" />
+      <rect x="2" y="5" width="4" height="26" rx="2" fill="#FFFFFF" opacity="0.7" />
+    </g>
+  </g>
+</svg>

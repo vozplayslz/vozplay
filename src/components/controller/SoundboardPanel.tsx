@@ -24,6 +24,7 @@ import {
   BellRing
 } from 'lucide-react';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
+import { apiFetch as fetch } from '../../utils/apiClient.js';
 
 export interface SoundEffectItem {
   id: string;

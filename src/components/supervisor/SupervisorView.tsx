@@ -38,8 +38,10 @@ import {
   Activity
 } from 'lucide-react';
 import { Session, SessionMetrics, AuditLog, SessionNotification, Lead } from '../../types.js';
+import { apiFetch as fetch } from '../../utils/apiClient.js';
 import { SupervisorSidebar, SUPERVISOR_ITEMS_MAP, SupervisorSectionId } from './SupervisorSidebar.js';
 import { SupervisorBrandingSection } from './SupervisorBrandingSection.js';
+import { SupervisorUsersSection } from './SupervisorUsersSection.js';
 
 interface DeviceItem {
   deviceId: string;
@@ -637,6 +639,11 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConne
             if (onSessionUpdated) onSessionUpdated();
           }}
         />
+      )}
+
+      {/* TAB: USUÁRIOS & CREDENCIAIS (RBAC & Senhas) */}
+      {activeTab === 'USERS' && (
+        <SupervisorUsersSection />
       )}
 
       {/* TAB 2: CONTROLLER MANAGEMENT (Section 30) */}

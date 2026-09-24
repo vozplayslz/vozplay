@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { ActiveTab, Session } from '../../types.js';
 import { usePWAInstall } from '../../hooks/usePWAInstall.js';
+import { VozPlayLogo, VozPlayMascotIcon } from '../common/VozPlayLogo.js';
 
 interface AppSidebarProps {
   activeTab: ActiveTab;
@@ -150,27 +151,26 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
             onClick={() => handleSelectTab('PARTICIPANT')}
             className="flex items-center gap-3 cursor-pointer group min-w-0"
           >
-            <div className="relative flex-shrink-0">
-              <div className="absolute -inset-1 bg-gradient-to-r from-pink-500 via-purple-600 to-indigo-500 rounded-xl blur-sm opacity-70 group-hover:opacity-100 transition duration-300" />
-              <div className="relative w-9 h-9 rounded-xl bg-[#0d1222] border border-white/20 flex items-center justify-center shadow-lg">
-                <Disc3 className="w-4 h-4 text-pink-400 group-hover:rotate-180 transition-transform duration-700" />
-              </div>
-            </div>
-
-            {!isCollapsed && (
-              <div className="min-w-0 truncate">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-display font-black text-white text-base tracking-tight leading-none">
-                    VOZ<span className="bg-gradient-to-r from-pink-500 via-purple-400 to-indigo-400 bg-clip-text text-transparent">PLAY</span>
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded-full text-[8px] font-black tracking-wider bg-pink-500/20 text-pink-300 border border-pink-500/30 uppercase">
-                    PRO
-                  </span>
+            {isCollapsed ? (
+              <div className="relative flex-shrink-0" title="VozPlay - Karaokê">
+                <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 via-cyan-400 to-blue-500 rounded-xl blur-sm opacity-70 group-hover:opacity-100 transition duration-300" />
+                <div className="relative w-10 h-10 rounded-xl bg-[#0d1222] border border-white/20 flex items-center justify-center shadow-lg overflow-hidden">
+                  <VozPlayMascotIcon
+                    size={34}
+                    animated
+                    themeColor={session?.branding?.primaryColor}
+                    themeMode={session?.branding?.themeMode === 'LIGHT' ? 'light' : 'dark'}
+                    className="group-hover:scale-110 transition-transform duration-300"
+                  />
                 </div>
-                <p className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
-                  vozplay.ai.slz.br
-                </p>
               </div>
+            ) : (
+              <VozPlayLogo
+                size="sm"
+                animated
+                themeColor={session?.branding?.primaryColor}
+                themeMode={session?.branding?.themeMode === 'LIGHT' ? 'light' : 'dark'}
+              />
             )}
           </div>
 
