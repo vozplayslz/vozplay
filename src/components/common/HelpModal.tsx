@@ -376,12 +376,26 @@ export const HelpModal: React.FC<HelpModalProps> = ({
 
                   <div className="p-4 rounded-2xl bg-[#111728] border border-purple-500/30 space-y-2">
                     <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-pink-400" /> Identidade Visual por Estabelecimento (Marca Própria)
+                      <Sparkles className="w-4 h-4 text-pink-400" /> Identidade Visual, Cores & Logo Favicon
                     </h4>
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      - <strong>Logomarca & Nome Comercial:</strong> Faça upload da logomarca do seu bar/lounge (PNG, JPG ou SVG com sanitização nativa anti-XSS) e defina o nome comercial e slogan oficial.<br />
-                      - <strong>Paleta de Cores & Contraste WCAG:</strong> Escolha entre temas pré-configurados (Roxo Neon, Azul Eletrizante, Esmeralda Lounge, Ouro & Âmbar, Sunset) ou selecione tons personalizados. O sistema valida automaticamente o contraste para garantir leitura perfeita das letras no telão.<br />
-                      - <strong>Sincronização em Tempo Real:</strong> As alterações são propagadas instantaneamente via WebSockets para a TV, os smartphones dos clientes e a mesa de som, sem necessidade de recarregar a página ou reiniciar a sessão.
+                      - <strong>Personalização Completa de Cores:</strong> Na aba <em>Identidade Visual</em>, altere as cores Principal, Secundária, Destaque, Fundo e Painéis com seletor visual e código hexadecimal.<br />
+                      - <strong>Logo & Mascote Ajustáveis:</strong> O mascote Polvo Cantor 3D adapta automaticamente seus gradientes ao tom escolhido da casa (modo <em>Tom da Casa</em>) ou preserva o clássico <em>Azul Oficial</em>.<br />
+                      - <strong>Favicon SVG Automático:</strong> O mascote também atua como favicon oficial da aplicação, adaptando-se a abas claras e escuras do navegador.<br />
+                      - <strong>Auditoria de Contraste WCAG 2.1:</strong> O sistema analisa a legibilidade das letras em tempo real e fornece um botão para ajuste automático de contraste caso necessário.<br />
+                      - <strong>Sincronização em Tempo Real:</strong> Ao clicar em <em>Salvar Identidade</em>, todas as alterações são propagadas via WebSocket para a TV, os smartphones dos clientes e a mesa de som sem precisar reiniciar a sessão.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-amber-500/30 space-y-2">
+                    <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                      <KeyRound className="w-4 h-4 text-amber-400" /> Gestão de Usuários, Papéis & Senhas (RBAC)
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      - <strong>Troca de Senhas Mestras:</strong> Na aba <em>Usuários & Senhas</em>, você pode alterar a qualquer momento a senha do <strong>Supervisor/Admin</strong> e a senha do <strong>Controlador da Mesa de Som</strong>.<br />
+                      - <strong>Cadastro de Operadores:</strong> Cadastre operadores específicos da equipe (com nome, e-mail, função e senha inicial) para rastreabilidade de acessos nos logs de auditoria.<br />
+                      - <strong>Senhas Padrão de Fábrica:</strong> Supervisor: <code className="text-amber-400 font-mono">vozplay@super2026</code> • Controlador: <code className="text-blue-400 font-mono">vozplay@ctrl704</code>.<br />
+                      - <strong>Persistência em Produção:</strong> Para fixar senhas via Docker, declare as variáveis <code className="text-purple-300 font-mono">SUPERVISOR_PASSWORD</code> e <code className="text-purple-300 font-mono">CONTROLLER_PASSWORD</code> no arquivo <code className="text-purple-300 font-mono">.env</code>.
                     </p>
                   </div>
                 </div>
@@ -535,6 +549,16 @@ http://localhost:3000`}
                           <td className="py-2 text-purple-300 font-bold">DATABASE_URL</td>
                           <td className="py-2">postgresql://...</td>
                           <td className="py-2 font-sans">String de conexão com banco de dados</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 text-purple-300 font-bold">SUPERVISOR_PASSWORD</td>
+                          <td className="py-2">vozplay@super2026</td>
+                          <td className="py-2 font-sans">Senha mestra do Supervisor / Painel Admin</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 text-purple-300 font-bold">CONTROLLER_PASSWORD</td>
+                          <td className="py-2">vozplay@ctrl704</td>
+                          <td className="py-2 font-sans">Senha mestra da Mesa de Som / Operador</td>
                         </tr>
                       </tbody>
                     </table>

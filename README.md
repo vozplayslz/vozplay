@@ -43,7 +43,8 @@ O VozPlay divide a operação em 5 experiências complementares:
 
 ### 3. 🛡️ Supervisor (Gerência / Caixa / Autoridade Geral)
 - **Gestão de Horários & Prorrogação:** Acompanhamento do término programado da sessão com prorrogações rápidas (+15m, +30m, +60m).
-- **Identidade Visual por Estabelecimento (White-Label):** Configuração completa da marca do lounge (logomarca com sanitização SVG nativa anti-XSS, nome comercial, slogan e paleta de cores com auditoria de contraste WCAG 2.1 AA/AAA) propagada em tempo real via WebSockets para a TV, celulares dos clientes e mesa de som.
+- **Identidade Visual por Estabelecimento (White-Label):** Configuração completa da marca do lounge (upload de logo, nome comercial, slogan, paleta com auditoria WCAG 2.1 AA/AAA) e **Logo do Polvo Cantor & Favicon 100% adaptáveis** a qualquer cor de tema (modo Tom da Casa ou Azul Oficial) propagada em tempo real para TV, smartphones e mesa de som.
+- **Gestão de Usuários & Senhas (RBAC):** Painel administrativo para cadastrar novos operadores de mesa, gerenciar equipe e alterar as senhas mestras do Supervisor e do Controlador.
 - **Encerramento Pontual:** Bloqueio de novas adições e cancelamento seguro de pedidos pendentes ao término do horário contratado da casa.
 - **Assunção Emergencial (*Emergency Takeover*):** Capacidade de revogar o operador atual em segundos e assumir o controle direto da sessão com renovação forçada dos códigos de presença.
 - **Broadcast de Avisos:** Transmissão de comunicados em tempo real na barra de alerta do telão.
@@ -155,6 +156,8 @@ As configurações devem ser declaradas no arquivo `.env`:
 | `NODE_ENV` | `production` | Modo de execução do ambiente |
 | `DOMAIN` | `vozplay.ai.slz.br` | Domínio público base dos QR Codes e links |
 | `DATABASE_URL` | `postgresql://vozplay_user:vozplay_secret_pass@localhost:5432/vozplay_db` | String de conexão com o PostgreSQL |
+| `SUPERVISOR_PASSWORD` | `vozplay@super2026` | Senha mestra do Supervisor / Painel Admin |
+| `CONTROLLER_PASSWORD` | `vozplay@ctrl704` | Senha mestra da Mesa de Som / Controlador |
 
 ---
 
@@ -163,6 +166,7 @@ As configurações devem ser declaradas no arquivo `.env`:
 Todos os endpoints estão sob o prefixo `/api/v1`:
 
 ### Sessão & Autenticação
+- `POST /api/v1/auth/login` — Autenticação de usuários (e-mail/senha ou role/senha) gerando token RBAC.
 - `GET /api/v1/session` — Dados da sessão ativa e status da TV.
 - `POST /api/v1/session/start` — Inicia uma nova sessão de karaokê.
 - `POST /api/v1/session/end` — Encerra a sessão atual e descarta pedidos pendentes.
@@ -188,13 +192,19 @@ Todos os endpoints estão sob o prefixo `/api/v1`:
 - `POST /api/v1/controller/volume` — Ajusta volume master da TV (`{ volume: 85 }`).
 - `POST /api/v1/controller/soundboard` — Dispara efeito sonoro (`{ soundType: 'applause' }`).
 
-### Supervisor (Gerência)
+### Supervisor (Gerência & Configurações)
 - `GET /api/v1/metrics` — Métricas em tempo real (músicas tocadas, tempo médio de espera, leads).
 - `GET /api/v1/leads` — Lista de contatos de clientes para campanhas.
 - `GET /api/v1/supervisor/audit-logs` — Registro detalhado de logs operacionais.
 - `POST /api/v1/supervisor/broadcast-alert` — Transmite aviso de texto na TV.
 - `POST /api/v1/supervisor/takeover` — Assume controle emergencial da sessão.
 - `GET /api/v1/supervisor/qrcode` — Retorna Data URL do QR Code da unidade.
+- `GET /api/v1/supervisor/users` — Lista os usuários operacionais cadastrados.
+- `POST /api/v1/supervisor/users` — Cadastra novo usuário/operador com papel e senha.
+- `DELETE /api/v1/supervisor/users/:id` — Remove usuário operacional.
+- `POST /api/v1/supervisor/change-password` — Atualiza senhas mestras de acesso.
+- `GET /api/v1/establishment/branding` — Consulta tokens de identidade visual e cores.
+- `POST /api/v1/establishment/branding` — Salva e propaga personalização de marca e cores.
 
 ### TV (Telão)
 - `GET /api/v1/tv/session` — DTO sanitizado para exibição pública (`TVSessionDTO`).
