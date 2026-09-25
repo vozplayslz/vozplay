@@ -40,7 +40,7 @@ import { VozPlayMascotIcon } from './VozPlayLogo.js';
 interface HelpModalProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultSection?: 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV' | 'DEPLOY';
+  defaultSection?: 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV' | 'TRACKER' | 'DEPLOY';
 }
 
 export const HelpModal: React.FC<HelpModalProps> = ({
@@ -48,7 +48,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({
   onClose,
   defaultSection = 'PARTICIPANT'
 }) => {
-  const [activeSection, setActiveSection] = useState<'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV' | 'DEPLOY'>(defaultSection);
+  const [activeSection, setActiveSection] = useState<'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV' | 'TRACKER' | 'DEPLOY'>(defaultSection);
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -87,6 +87,13 @@ export const HelpModal: React.FC<HelpModalProps> = ({
       icon: Tv,
       color: 'from-blue-500 to-cyan-600',
       description: 'Configuração de tela e letras'
+    },
+    {
+      id: 'TRACKER' as const,
+      label: 'Acompanhar Minha Vez',
+      icon: ExternalLink,
+      color: 'from-cyan-500 to-teal-600',
+      description: 'Link público /v/:id sem login'
     },
     {
       id: 'DEPLOY' as const,
@@ -455,7 +462,51 @@ export const HelpModal: React.FC<HelpModalProps> = ({
               </div>
             )}
 
-            {/* 5. GUIA DE DEPLOY & DEVOPS */}
+            {/* 5. ACOMPANHAR MINHA VEZ (TRACKER PÚBLICO) */}
+            {activeSection === 'TRACKER' && (
+              <div className="space-y-6 animate-in fade-in duration-150">
+                <div className="flex items-center gap-3 pb-3 border-b border-white/[0.08]">
+                  <div className="w-9 h-9 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center justify-center">
+                    <ExternalLink className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white">Acompanhar Minha Vez (Link Público / Tracker)</h3>
+                    <p className="text-xs text-slate-400">Rastreamento leve da fila pelo WhatsApp ou navegador, sem necessidade de login</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-white/[0.07] space-y-2">
+                    <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-2">
+                      <Clock className="w-4 h-4" /> Como Funciona o Link de Acompanhamento
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Ao adicionar uma música à fila, o participante pode tocar no botão <strong>Compartilhar Minha Vez</strong> para gerar um link direto (ex: <code className="text-cyan-300 font-mono">vozplay.ai.slz.br/v/:queueItemId</code>). Esse link pode ser enviado para o WhatsApp de amigos da mesa ou aberto em segundo plano no celular.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-white/[0.07] space-y-2">
+                    <h4 className="text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-2">
+                      <Shield className="w-4 h-4" /> Privacidade e LGPD Garantidas
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      O Tracker público <strong>nunca expõe dados confidenciais</strong>, como número de WhatsApp, token de sessão ou identificadores internos. Ele exibe apenas o nome artístico do cantor, a música escolhida, o tom e a posição atual na fila.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-white/[0.07] space-y-2">
+                    <h4 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
+                      <Radio className="w-4 h-4" /> Atualização em Tempo Real & Alerta de Palco
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      A tela do Tracker atualiza automaticamente a posição na fila (ex: <em>Faltam 2 músicas</em>, <em>Tempo estimado: 8 min</em>). Quando a música é convocada pelo operador para o palco, o status muda para <strong>Chamado ao Palco!</strong> com efeito visual pulsante.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 6. GUIA DE DEPLOY & DEVOPS */}
             {activeSection === 'DEPLOY' && (
               <div className="space-y-6 animate-in fade-in duration-150">
                 <div className="flex items-center gap-3 pb-3 border-b border-white/[0.08]">
@@ -464,7 +515,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                   </div>
                   <div>
                     <h3 className="text-base font-black text-white">Guia de Deploy & DevOps (Produção)</h3>
-                    <p className="text-xs text-slate-400">Instruções para subir via Docker, PostgreSQL e Cloud Run</p>
+                    <p className="text-xs text-slate-400">Instruções para subir via Docker Compose, PostgreSQL 16 e bateria de testes</p>
                   </div>
                 </div>
 
@@ -472,7 +523,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                 <div className="p-4 rounded-2xl bg-[#090d18] border border-white/10 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-emerald-400 flex items-center gap-2">
-                      <Terminal className="w-4 h-4" /> Execução com Docker Compose
+                      <Terminal className="w-4 h-4" /> Execução com Docker Compose (Produção)
                     </span>
                     <button
                       onClick={() => handleCopy('docker compose up --build -d', 'docker-cmd')}
@@ -483,14 +534,40 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                     </button>
                   </div>
                   <pre className="p-3 rounded-xl bg-black/60 text-emerald-300 font-mono text-xs overflow-x-auto">
-                    {`# 1. Clone o repositório e configure as variáveis
+                    {`# 1. Clone o repositório e configure as credenciais obrigatórias
 cp .env.example .env
 
-# 2. Suba os containers da aplicação e do PostgreSQL
+# 2. Suba os containers da aplicação e do PostgreSQL com healthcheck
 docker compose up --build -d
 
-# 3. Acesse a aplicação na porta 3000
+# 3. Acesse a aplicação na porta única 3000
 http://localhost:3000`}
+                  </pre>
+                </div>
+
+                {/* Test Suite Execution */}
+                <div className="p-4 rounded-2xl bg-[#090d18] border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-400 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4" /> Bateria de Testes Automatizados (81 Testes)
+                    </span>
+                    <button
+                      onClick={() => handleCopy('npm run test', 'test-cmd')}
+                      className="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-white/10 text-[11px] font-semibold text-slate-300 flex items-center gap-1.5 transition active:scale-95"
+                    >
+                      {copiedText === 'test-cmd' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedText === 'test-cmd' ? 'Copiado!' : 'Copiar'}</span>
+                    </button>
+                  </div>
+                  <pre className="p-3 rounded-xl bg-black/60 text-purple-300 font-mono text-xs overflow-x-auto">
+                    {`# Executa a bateria de 81 testes de integração & segurança:
+npm run test
+
+# Executa checagem de tipos TypeScript estrita:
+npm run lint
+
+# Executa empacotamento completo de produção (Vite + esbuild):
+npm run build`}
                   </pre>
                 </div>
 
@@ -507,10 +584,13 @@ http://localhost:3000`}
 
                   <div className="p-4 rounded-2xl bg-[#111728] border border-white/[0.07] space-y-2">
                     <div className="text-xs font-bold text-blue-400 uppercase tracking-wider">
-                      Domínio Oficial & WebSocket
+                      Healthchecks & Observabilidade
                     </div>
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      O domínio de produção configurado é <code className="text-blue-300 font-mono">vozplay.ai.slz.br</code>. O servidor HTTP e o endpoint WebSocket (<code className="text-blue-300 font-mono">/ws</code>) compartilham a mesma porta.
+                      Probes de integridade expostos para orquestradores (Kubernetes/Cloud Run):<br />
+                      - <code className="text-blue-300 font-mono">/liveness</code> (Status de execução do processo)<br />
+                      - <code className="text-blue-300 font-mono">/readiness</code> (Conexão do banco de dados)<br />
+                      - <code className="text-blue-300 font-mono">/api/health</code> (Status do serviço e domínio)
                     </p>
                   </div>
                 </div>
@@ -518,14 +598,14 @@ http://localhost:3000`}
                 {/* Environment Variables Table */}
                 <div className="p-4 rounded-2xl bg-[#111728] border border-white/[0.07] space-y-2">
                   <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                    Variáveis de Ambiente Recomendadas (.env)
+                    Variáveis de Ambiente Obrigatórias (.env)
                   </h4>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs font-mono">
                       <thead>
                         <tr className="border-b border-white/10 text-slate-400">
                           <th className="py-2">Variável</th>
-                          <th className="py-2">Padrão</th>
+                          <th className="py-2">Exemplo / Padrão</th>
                           <th className="py-2">Descrição</th>
                         </tr>
                       </thead>
@@ -533,32 +613,37 @@ http://localhost:3000`}
                         <tr>
                           <td className="py-2 text-purple-300 font-bold">PORT</td>
                           <td className="py-2">3000</td>
-                          <td className="py-2 font-sans">Porta de escuta HTTP e WebSocket</td>
+                          <td className="py-2 font-sans">Porta de escuta HTTP REST e WebSockets</td>
                         </tr>
                         <tr>
                           <td className="py-2 text-purple-300 font-bold">NODE_ENV</td>
                           <td className="py-2">production</td>
-                          <td className="py-2 font-sans">Modo de execução (development/production)</td>
+                          <td className="py-2 font-sans">Modo de execução (startup falha se senhas ausentes em prod)</td>
                         </tr>
                         <tr>
                           <td className="py-2 text-purple-300 font-bold">DOMAIN</td>
                           <td className="py-2">vozplay.ai.slz.br</td>
-                          <td className="py-2 font-sans">Domínio público e base dos QR Codes</td>
+                          <td className="py-2 font-sans">Domínio oficial base dos QR Codes e links</td>
                         </tr>
                         <tr>
                           <td className="py-2 text-purple-300 font-bold">DATABASE_URL</td>
                           <td className="py-2">postgresql://...</td>
-                          <td className="py-2 font-sans">String de conexão com banco de dados</td>
+                          <td className="py-2 font-sans">String de conexão com o banco PostgreSQL 16</td>
                         </tr>
                         <tr>
                           <td className="py-2 text-purple-300 font-bold">SUPERVISOR_PASSWORD</td>
-                          <td className="py-2 text-slate-400 italic">(definido no .env)</td>
-                          <td className="py-2 font-sans">Senha mestra do Supervisor / Painel Admin</td>
+                          <td className="py-2 text-rose-400 italic">Obrigatório no .env</td>
+                          <td className="py-2 font-sans">Senha mestra do Supervisor (sem fallbacks inseguros)</td>
                         </tr>
                         <tr>
                           <td className="py-2 text-purple-300 font-bold">CONTROLLER_PASSWORD</td>
-                          <td className="py-2 text-slate-400 italic">(definido no .env)</td>
-                          <td className="py-2 font-sans">Senha mestra da Mesa de Som / Operador</td>
+                          <td className="py-2 text-rose-400 italic">Obrigatório no .env</td>
+                          <td className="py-2 font-sans">Senha mestra da Mesa de Som (sem fallbacks inseguros)</td>
+                        </tr>
+                        <tr>
+                          <td className="py-2 text-purple-300 font-bold">SEED_DEMO</td>
+                          <td className="py-2">false</td>
+                          <td className="py-2 font-sans">Se true, popula cantores fictícios em ambiente de teste</td>
                         </tr>
                       </tbody>
                     </table>

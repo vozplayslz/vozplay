@@ -20,13 +20,16 @@ O **VozPlay** é uma plataforma profissional de karaokê desenvolvida para bares
   - A porta de escuta do container é estritamente **3000** (host `0.0.0.0`).
   - Tanto o tráfego HTTP quanto o tráfego WebSocket compartilham a porta 3000.
 - **Domínio Oficial**: `vozplay.ai.slz.br`.
-- **Banco de Dados**:
-  - DDL relacional documentado em `schema.sql` (PostgreSQL 16).
-  - Camada de dados em memória (`server/db.ts`) com seeding dinâmico e suporte a persistência SQL.
+- **Banco de Dados & Transações**:
+  - DDL relacional documentado em `schema.sql` (PostgreSQL 16) com 17 tabelas normalizadas.
+  - Camada de dados em memória (`server/db.ts`) sincronizada com PostgreSQL e transações com bloqueio atômico (`SELECT ... FOR UPDATE`).
 - **Segurança & Privacidade**:
-  - O DTO da TV (`TVSessionDTO`) **JAMAIS** deve conter dados pessoais de participantes (WhatsApp, identificadores internos ou tokens).
-  - Códigos de presença possuem expiração máxima de 60 segundos para assegurar a presença física do cantor na mesa de som.
+  - O DTO da TV (`TVSessionDTO`) e o Tracker Público (`/v/:queueItemId`) **JAMAIS** contêm dados pessoais de participantes (WhatsApp, tokens ou IDs internos).
+  - Códigos de presença possuem expiração máxima de 60 segundos com taxa de tentativas limitada para assegurar a presença física do cantor na mesa de som.
   - Concorrência de fila protegida por mutex assíncrono atômico (`server/asyncMutex.ts`), prevenindo condições de corrida e saltos de posição.
+  - Máquina de estados de fila com validação estrita de ciclo de vida (`QUEUED` ➔ `CALLED` ➔ `PLAYING` ➔ `COMPLETED`).
+- **Observabilidade**:
+  - Endpoints de integridade estruturados: `/liveness` (execução do processo), `/readiness` (saúde do banco) e `/api/health` (status e domínio).
 
 ## 4. Identidade Visual, Cores & Logo Adaptável
 - **Mascote Polvo Cantor 3D (`src/components/common/VozPlayLogo.tsx`)**:
@@ -48,6 +51,7 @@ O **VozPlay** é uma plataforma profissional de karaokê desenvolvida para bares
     - O sistema não utiliza senhas padrão hardcoded nem fallbacks inseguros.
     - Em produção, `SUPERVISOR_PASSWORD` e `CONTROLLER_PASSWORD` são configuradas obrigatoriamente no `.env`.
     - Hashes de senha são gerados com Argon2id (RFC 9106) e tokens criptográficos possuem revogação e expiração.
+    - Zero bypass por headers arbitrários (`x-client-role` rejeitado).
 
 ## 6. Módulo de Ajuda & Documentação
 - A interface global conta com a **Central de Ajuda & Guia Operacional** (`src/components/common/HelpModal.tsx`), acessível a qualquer momento pelo cabeçalho superior.
@@ -56,10 +60,11 @@ O **VozPlay** é uma plataforma profissional de karaokê desenvolvida para bares
   2. **Controlador**: Gestão de fila, código de 60s, DJ Soundboard e tolerância a ausências.
   3. **Supervisor**: Prorrogações, emergência, branding, cores, favicon e gestão de usuários/senhas.
   4. **TV Telão**: Modo tela cheia, áudio HDMI e letras sincronizadas.
-  5. **Deploy & DevOps**: Comandos Docker Compose, tabela de variáveis e porta 3000.
+  5. **Acompanhar Minha Vez (Tracker)**: Como gerar o link público `/v/:id` e monitorar a vez pelo WhatsApp com privacidade.
+  6. **Deploy & DevOps**: Comandos Docker Compose, tabela de variáveis, bateria de testes e porta 3000.
 
 ## 7. Diretrizes de Deploy & DevOps
-- **Docker Compose**: `docker compose up --build -d` inicializa a aplicação VozPlay e o container PostgreSQL com `schema.sql` montado em `/docker-entrypoint-initdb.d/init.sql`.
+- **Docker Compose**: `docker compose up --build -d` inicializa a aplicação VozPlay e o container PostgreSQL com `schema.sql` montado em `/docker-entrypoint-initdb.d/init.sql` e probe de healthcheck.
 - **Build de Produção**: `npm run build` executa o Vite build e empacota o servidor em `dist/server.cjs` via esbuild.
 - **Execução**: `npm start` roda `node dist/server.cjs`.
 - **Variáveis de Ambiente Obrigatórias (.env / .env.example)**:
@@ -67,9 +72,11 @@ O **VozPlay** é uma plataforma profissional de karaokê desenvolvida para bares
   - `NODE_ENV`: `production` ou `development`.
   - `DATABASE_URL`: String de conexão PostgreSQL.
   - `DOMAIN`: Domínio oficial (`vozplay.ai.slz.br`).
-  - `SUPERVISOR_PASSWORD`: Senha mestra do supervisor.
-  - `CONTROLLER_PASSWORD`: Senha mestra da mesa de som.
+  - `SUPERVISOR_PASSWORD`: Senha mestra do supervisor (startup falha se ausente em produção).
+  - `CONTROLLER_PASSWORD`: Senha mestra da mesa de som (startup falha se ausente em produção).
+  - `SEED_DEMO`: Modo de demonstração (padrão `false` em produção).
+  - `GEMINI_API_KEY`: Chave da API do Google Gemini para curadoria musical IA.
 
 ## 8. Testes Automatizados & Qualidade de Código
-- **Bateria de Testes de Integração**: `npm run test` (`scripts/verify-integration.ts`) executa 38 testes automatizados cobrindo RBAC, privacidade do TVSessionDTO, rotação de códigos de 60s, enfileiramento determinístico e integridade de dados.
+- **Bateria de Testes de Integração**: `npm run test` (`scripts/verify-integration.ts`) executa 81 testes automatizados cobrindo RBAC, rejeição de bypass, privacidade do TVSessionDTO, rotação de códigos de 60s, enfileiramento determinístico, transições de estado da fila, ciclo de vida de operadores individuais, clamping de semitons, curadoria musical Gemini e observabilidade.
 - **Verificação Estática**: `npm run lint` (`tsc --noEmit`) deve passar com 0 erros antes de qualquer deploy.

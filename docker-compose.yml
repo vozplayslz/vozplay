@@ -8,15 +8,18 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=postgresql://vozplay_user:vozplay_secret_pass@db:5432/vozplay_db
-      - DOMAIN=vozplay.ai.slz.br
+      - DATABASE_URL=${DATABASE_URL:-postgresql://vozplay_user:vozplay_secure_pass@db:5432/vozplay_db}
+      - DOMAIN=${DOMAIN:-vozplay.ai.slz.br}
       - SUPERVISOR_PASSWORD=${SUPERVISOR_PASSWORD}
       - CONTROLLER_PASSWORD=${CONTROLLER_PASSWORD}
+      - SEED_DEMO=${SEED_DEMO:-false}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     env_file:
       - path: .env
         required: false
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   db:
     image: postgres:16-alpine
@@ -24,13 +27,19 @@ services:
     restart: unless-stopped
     environment:
       - POSTGRES_USER=vozplay_user
-      - POSTGRES_PASSWORD=vozplay_secret_pass
+      - POSTGRES_PASSWORD=vozplay_secure_pass
       - POSTGRES_DB=vozplay_db
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vozplay_user -d vozplay_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/init.sql
 
 volumes:
   postgres_data:
+

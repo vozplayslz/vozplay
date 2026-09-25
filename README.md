@@ -59,8 +59,9 @@ O VozPlay divide a operação em 5 experiências complementares:
 - **Transição Automática & Gamificação:** Telas de intervalo com pontuações simbólicas de karaokê (*Voz de Ouro*, *Afinação Impecável*, *Show de Carisma*) e contagem regressiva para o próximo cantor.
 
 ### 5. 🌐 Acompanhar Minha Vez (Tracker Público)
-- Link leve e compartilhável via WhatsApp (`/tracker?p=...`).
+- Link leve e compartilhável via WhatsApp e navegador (`/v/:queueItemId` ou `/tracker/:queueItemId`).
 - Permite que o participante acompanhe quantas músicas faltam e o tempo estimado de espera mesmo estando no bar, na mesa ou no banheiro.
+- Privacidade absoluta: nunca expõe número de telefone, tokens ou identificadores privados.
 
 ---
 
@@ -77,6 +78,7 @@ O VozPlay divide a operação em 5 experiências complementares:
                |              Node.js Express Core (server.ts)      |
                |  - REST API /api/v1/*                              |
                |  - WebSocket Hub /ws (wsServer.ts)                 |
+               |  - Probes /liveness, /readiness, /api/health       |
                |  - Vite Middleware (Dev) / Static Dist (Prod)      |
                +-------------------+--------------------+-----------+
                                    |                    |
@@ -89,6 +91,7 @@ O VozPlay divide a operação em 5 experiências complementares:
 | - Mesa de Som (Controlador)   | <======== WebSocket Bi-direcional =====>|   (schema.sql)    |
 | - Gerência (Supervisor/Caixa) |          Estado Autoritativo           | - Estado em RAM   |
 | - Telão 4K (TV Player)        |                                        |   (server/db.ts)  |
+| - Acompanhar Minha Vez (/v/*) |                                        |                   |
 +-------------------------------+                                        +-------------------+
 ```
 
@@ -99,6 +102,7 @@ O VozPlay divide a operação em 5 experiências complementares:
 ### Pré-requisitos
 - Node.js 20+ instalado
 - Gerenciador de pacotes npm
+- PostgreSQL 16 (ou container Docker)
 
 ### Passos para Desenvolvimento
 ```bash
@@ -108,10 +112,13 @@ cd vozplay
 # 2. Instale as dependências
 npm install
 
-# 3. Inicie o servidor integrado de desenvolvimento (porta 3000)
+# 3. Configure as credenciais obrigatórias
+cp .env.example .env
+
+# 4. Inicie o servidor integrado de desenvolvimento (porta 3000)
 npm run dev
 
-# 4. Execute a suíte de testes de integração e conformidade de segurança (38 testes)
+# 5. Execute a bateria completa de testes de integração & segurança (81 testes)
 npm test
 ```
 
@@ -121,18 +128,23 @@ Acesse a aplicação no navegador em: `http://localhost:3000`.
 
 ## 🐳 Guia de Deploy (Docker & Cloud Run)
 
-A aplicação foi projetada para rodar em containers leves (Alpine Linux) expondo estritamente a porta 3000.
+A aplicação foi projetada para rodar em containers leves expondo estritamente a porta única 3000.
 
 ### 1. Execução com Docker Compose
 ```bash
-# 1. Copie o arquivo de variáveis de exemplo
+# 1. Copie o arquivo de variáveis de exemplo e configure senhas fortes
 cp .env.example .env
 
-# 2. Suba o container da aplicação e do banco PostgreSQL
+# 2. Suba os containers com PostgreSQL 16 e verificação de integridade (healthcheck)
 docker compose up --build -d
 
 # 3. Verifique os logs dos containers
 docker compose logs -f app
+
+# 4. Probes de integridade expostos:
+# http://localhost:3000/liveness   (Status de execução do processo)
+# http://localhost:3000/readiness  (Status da conexão com banco)
+# http://localhost:3000/api/health (Status do serviço e domínio)
 ```
 
 ### 2. Build de Produção Manual
@@ -234,26 +246,31 @@ O servidor WebSocket escuta no mesmo canal HTTP (`/ws` ou raiz da porta 3000) e 
 
 ## 🔑 Autenticação, RBAC e Segurança
 
-A plataforma VozPlay implementa segurança em camadas com autenticação baseada em tokens criptográficos e controle de acesso baseado em papéis (RBAC):
+A plataforma VozPlay implementa segurança em camadas com autenticação estrita baseada em tokens criptográficos e controle de acesso baseado em papéis (RBAC):
 
-1. **Tokens Criptográficos de Sessão (`server/auth.ts`):**
-   - Emitidos via `POST /api/v1/auth/login` para perfis `SUPERVISOR`, `CONTROLLER`, `PARTICIPANT` e `TV`.
-   - Hash SHA-256 armazenado na tabela `auth_tokens` com data de expiração e controle de revogação.
-   - Suporte a Bearer Token no header `Authorization` e no handshake de conexão WebSocket (`?token=...`).
+1. **Tokens Criptográficos de Sessão & Hashing com Argon2id (`server/auth.ts`):**
+   - Senhas de operadores e supervisores são protegidas com **Argon2id (RFC 9106)**, resistente a ataques de GPU e dicionário.
+   - Tokens criptográficos de alta entropia emitidos via `POST /api/v1/auth/login` para perfis `SUPERVISOR`, `CONTROLLER`, `PARTICIPANT` e `TV`.
+   - Hash SHA-256 armazenado na tabela `auth_tokens` com data de expiração e controle de revogação dinâmico.
+   - Suporte exclusivo a Bearer Token no header `Authorization` e no handshake WebSocket (`?token=...`).
+   - **Zero Bypass:** Rejeição terminante de cabeçalhos não-autoritativos (ex: `x-client-role`). A autoridade é 100% derivada do token validado.
 
 2. **Autorização Rígida de Rotas (RBAC):**
-   - **Supervisor:** Exclusividade para início/pausa/prorrogação/encerramento de sessões, alteração de identidade visual (white-label), exportação de leads LGPD e assunção emergencial (*takeover*).
-   - **Controlador:** Restrito aos comandos de cabine (play, pause, next, volume, soundboard, fila, códigos de presença).
+   - **Supervisor:** Exclusividade para início/pausa/prorrogação/encerramento de sessões, alteração de identidade visual (white-label), exportação de leads LGPD e assunção emergencial (*takeover* com invalidação de tokens anteriores).
+   - **Controlador:** Restrito aos comandos de cabine (play, pause, next, volume, soundboard, fila, códigos de presença de 60s).
    - **Participante:** Permissão exclusiva de gerenciar a sua própria vaga na fila e enviar reações em tempo real. Bloqueio automático com 403 Forbidden para tentativas de alteração de estado global.
 
 3. **Isolamento Multi-Tenant Real:**
    - Todos os registros, filas, catálogos e sessões são estritamente particionados por `establishment_id`. Tentativas de acesso entre estabelecimentos diferentes são bloqueadas com 403 Forbidden e geram log de `SECURITY`.
 
-4. **Proteção contra Brute Force:**
-   - O código de presença rotativo de 4 dígitos possui validade estrita de 60 segundos e proteção contra enumeração (máximo 5 tentativas incorretas consecutivas por IP com cooldown de 2 minutos).
+4. **Máquina de Estados da Fila & Proteção contra Invalidações:**
+   - Transições de fila seguem o ciclo autoritativo: `QUEUED` ➔ `CALLED` (janela de 30s) ➔ `PLAYING` ➔ `COMPLETED`. Mutações reversas de músicas finalizadas ou canceladas são rejeitadas com erro 400.
 
-5. **Concorrência Segura da Fila (`AsyncMutex`):**
-   - Inserções, chamadas e cancelamentos concorrentes utilizam locks atômicos, impedindo colisões de posição (`orderIndex`) ou saltos na fila rotativa.
+5. **Proteção contra Brute Force:**
+   - O código de presença rotativo de 4 dígitos possui validade estrita de 60 segundos e proteção contra enumeração (máximo 5 tentativas incorretas consecutivas por IP com cooldown de 60 segundos).
+
+6. **Concorrência Segura da Fila (`AsyncMutex`):**
+   - Inserções, chamadas e cancelamentos concorrentes utilizam locks atômicos no mutex assíncrono e transações `SELECT ... FOR UPDATE` no PostgreSQL, impedindo colisões de posição (`orderIndex`) ou saltos na fila rotativa.
 
 ---
 

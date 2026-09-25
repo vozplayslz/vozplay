@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Allow: /v/
+Allow: /tracker/
+Allow: /join
+Disallow: /api/
+Disallow: /supervisor/
+Disallow: /controller/
+Disallow: /ws
+
+Sitemap: https://vozplay.ai.slz.br/sitemap.xml

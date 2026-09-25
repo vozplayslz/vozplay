@@ -232,6 +232,25 @@ async function runTests() {
 
     // 10. Chamar Próximo Participante (Janela de 30s & Transição Atômica)
     console.log('\n10. Testando Chamada Atômica do Próximo Participante...');
+    // Cancela qualquer chamada pendente para garantir estado limpo
+    await fetch(`${BASE_URL}/api/v1/controller/call-cancel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${controllerToken}`
+      }
+    });
+
+    // Promove a música do teste atual para o topo da fila ativa
+    await fetch(`${BASE_URL}/api/v1/controller/queue/promote`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${controllerToken}`
+      },
+      body: JSON.stringify({ queueItemId })
+    });
+
     const callNextRes = await fetch(`${BASE_URL}/api/v1/controller/call-next`, {
       method: 'POST',
       headers: {
