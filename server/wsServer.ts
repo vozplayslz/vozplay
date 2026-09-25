@@ -2,20 +2,26 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * VOZPLAY - WebSocket Real-Time Server
- * Section 32 of PRD: Resilient Event-Based Real-Time Hub com RBAC e Multi-Tenant Real
+ * VOZPLAY - Hardened Authoritative WebSocket Server
+ * - Autenticação obrigatória via Bearer Token
+ * - Role, actorId, sessionId e establishmentId derivados 100% do token validado
+ * - Proibido elevar privilégio via payload não autenticado
+ * - Tratamento de reconexões, heartbeat ativo (ping-pong) e prevenção de conexões duplicadas
  */
 
 import { Server as HTTPServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from './db.js';
 import { WSEventType, WSMessage } from '../src/types.js';
-import { authService } from './auth.js';
+import { authService, UserRole } from './auth.js';
 import { logger } from './logger.js';
 
 interface ClientConnection {
+  id: string;
   ws: WebSocket;
-  role: 'PARTICIPANT' | 'CONTROLLER' | 'SUPERVISOR' | 'TV';
+  role: UserRole;
+  actorId?: string;
+  actorName?: string;
   establishmentId: string;
   sessionId: string;
   participantId?: string;
@@ -23,62 +29,47 @@ interface ClientConnection {
   isAuthenticated: boolean;
   isAlive: boolean;
   ip: string;
+  connectedAt: string;
 }
 
 class VozPlayWSServer {
   private wss: WebSocketServer | null = null;
   private clients: Set<ClientConnection> = new Set();
   private pingInterval: NodeJS.Timeout | null = null;
+  private presenceInterval: NodeJS.Timeout | null = null;
 
   public init(server: HTTPServer) {
     this.wss = new WebSocketServer({ server, path: '/ws' });
 
     this.wss.on('connection', async (ws: WebSocket, req) => {
       const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown-ip';
-      
-      // Extração de token ou perfil via Query Params
-      let tokenFromQuery = '';
-      let roleFromQuery: any = 'PARTICIPANT';
-      let establishmentId = db.session.establishmentId;
-      let sessionId = db.session.id;
+      const connId = 'conn-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
 
+      let tokenFromQuery = '';
       try {
         const url = new URL(req.url || '', 'http://localhost');
         tokenFromQuery = url.searchParams.get('token') || '';
-        if (url.searchParams.get('role')) {
-          roleFromQuery = url.searchParams.get('role');
-        }
-        if (url.searchParams.get('establishmentId')) {
-          establishmentId = url.searchParams.get('establishmentId')!;
-        }
-        if (url.searchParams.get('sessionId')) {
-          sessionId = url.searchParams.get('sessionId')!;
-        }
       } catch {
-        // Formato URL seguro
+        // Safe URL parse
       }
 
       const conn: ClientConnection = {
+        id: connId,
         ws,
-        role: roleFromQuery,
-        establishmentId,
-        sessionId,
+        role: 'PARTICIPANT',
+        establishmentId: db.session.establishmentId,
+        sessionId: db.session.id,
         isAuthenticated: false,
         isAlive: true,
-        ip
+        ip,
+        connectedAt: new Date().toISOString()
       };
 
-      // Se passou token na URL, valida de imediato
+      // Se passou token na URL do handshake, autentica imediatamente
       if (tokenFromQuery) {
         const authSession = await authService.verifyToken(tokenFromQuery);
         if (authSession) {
-          conn.isAuthenticated = true;
-          conn.token = tokenFromQuery;
-          conn.role = authSession.role;
-          conn.establishmentId = authSession.establishmentId;
-          conn.sessionId = authSession.sessionId;
-          conn.participantId = authSession.actorId;
-          logger.info(`Cliente autenticado via handshake WebSocket: ${conn.role}`, { actorId: authSession.actorId });
+          this.applyAuthenticatedSession(conn, authSession, tokenFromQuery);
         }
       }
 
@@ -93,7 +84,7 @@ class VozPlayWSServer {
           const parsed = JSON.parse(data.toString());
           await this.handleClientMessage(conn, parsed);
         } catch (err) {
-          logger.error('Erro ao processar mensagem do WebSocket:', err);
+          logger.warn('Mensagem WebSocket malformada recebida:', { error: String(err), ip: conn.ip });
         }
       });
 
@@ -111,8 +102,8 @@ class VozPlayWSServer {
         this.clients.delete(conn);
       });
 
-      // Se conectou como TV de imediato, marca status
-      if (conn.role === 'TV') {
+      // Se conectou como TV autenticada, atualiza status
+      if (conn.isAuthenticated && conn.role === 'TV') {
         db.tvConnected = true;
         db.lastTvHeartbeat = Date.now();
       }
@@ -121,28 +112,34 @@ class VozPlayWSServer {
       this.sendAuthoritativeState(conn);
     });
 
-    // Heartbeat a cada 25 segundos para limpar conexões inativas/mortas
+    // Heartbeat ativo a cada 25 segundos para limpar conexões zumbis
     this.pingInterval = setInterval(() => {
       this.clients.forEach((conn) => {
         if (!conn.isAlive) {
-          conn.ws.terminate();
+          try {
+            conn.ws.terminate();
+          } catch {}
           this.clients.delete(conn);
           return;
         }
         conn.isAlive = false;
-        conn.ws.ping();
+        try {
+          conn.ws.ping();
+        } catch {
+          this.clients.delete(conn);
+        }
       });
     }, 25000);
 
     // Verificação de expiração do código de presença (60s) e timeout de chamada (30s) a cada 1s
-    setInterval(() => {
+    this.presenceInterval = setInterval(async () => {
       const code = db.getPresenceCode();
       if (code.remainingSeconds === 60) {
         this.broadcast('presence.renewed', { code });
       }
 
       // Verificação autoritativa da janela de 30 segundos da chamada do participante
-      const timeoutResult = db.checkCallingTimeout();
+      const timeoutResult = await db.checkCallingTimeout();
       if (timeoutResult && timeoutResult.expired) {
         if (timeoutResult.missedTurnCount === 1) {
           this.broadcast('participant.turn_missed', {
@@ -163,36 +160,88 @@ class VozPlayWSServer {
     }, 1000);
   }
 
+  /**
+   * Vincula sessão autenticada a uma conexão WebSocket e previne conexões duplicadas
+   */
+  private applyAuthenticatedSession(conn: ClientConnection, authSession: any, token: string) {
+    // Encerra qualquer conexão anterior existente para o mesmo ator
+    for (const existing of this.clients) {
+      if (
+        existing.id !== conn.id &&
+        existing.isAuthenticated &&
+        existing.actorId === authSession.actorId &&
+        existing.role === authSession.role
+      ) {
+        try {
+          existing.ws.close(4001, 'Sessão substituída por nova conexão autenticada.');
+        } catch {}
+        this.clients.delete(existing);
+      }
+    }
+
+    conn.isAuthenticated = true;
+    conn.token = token;
+    conn.role = authSession.role;
+    conn.actorId = authSession.actorId;
+    conn.actorName = authSession.actorName;
+    conn.establishmentId = authSession.establishmentId;
+    conn.sessionId = authSession.sessionId;
+    if (authSession.role === 'PARTICIPANT') {
+      conn.participantId = authSession.actorId;
+    }
+
+    if (conn.role === 'TV') {
+      db.tvConnected = true;
+      db.lastTvHeartbeat = Date.now();
+      this.broadcast('tv.connected', { message: 'TV conectada com sucesso' });
+      db.addNotification('tv_connected', 'TV Conectada', 'A TV de reprodução está online e sincronizada.', 'info');
+    }
+
+    logger.info(`WebSocket: Cliente autenticado com sucesso [${conn.role}] ${authSession.actorName}`, {
+      actorId: authSession.actorId,
+      establishmentId: authSession.establishmentId,
+      sessionId: authSession.sessionId
+    });
+  }
+
   private async handleClientMessage(conn: ClientConnection, msg: any) {
     if (!msg || !msg.type) return;
 
     switch (msg.type) {
-      // Handshake explícito ou re-registro do cliente
+      // Handshake explícito ou re-registro do cliente com token
       case 'REGISTER_CLIENT':
       case 'auth.identify': {
         const token = msg.token;
-        if (token) {
+        if (token && typeof token === 'string') {
           const authSession = await authService.verifyToken(token);
           if (authSession) {
-            conn.isAuthenticated = true;
-            conn.token = token;
-            conn.role = authSession.role;
-            conn.establishmentId = authSession.establishmentId;
-            conn.sessionId = authSession.sessionId;
-            conn.participantId = authSession.actorId;
+            this.applyAuthenticatedSession(conn, authSession, token);
+          } else {
+            conn.ws.send(
+              JSON.stringify({
+                event: 'auth.error',
+                payload: { message: 'Token de autenticação inválido ou expirado.' },
+                timestamp: new Date().toISOString()
+              })
+            );
           }
         } else {
-          // Registro compatível com interface aprovada
-          conn.role = msg.role || conn.role || 'PARTICIPANT';
-          conn.sessionId = msg.sessionId || db.session.id;
-          conn.participantId = msg.participantId || conn.participantId;
-        }
-
-        if (conn.role === 'TV') {
-          db.tvConnected = true;
-          db.lastTvHeartbeat = Date.now();
-          this.broadcast('tv.connected', { message: 'TV conectada com sucesso' });
-          db.addNotification('tv_connected', 'TV Conectada', 'A TV de reprodução está online e sincronizada.', 'info');
+          // Cliente sem token permanece no perfil padrão de espectador/convidado não-privilegiado
+          // NUNCA conceder role de CONTROLLER ou SUPERVISOR sem token válido
+          if (msg.role && ['CONTROLLER', 'SUPERVISOR', 'SYSTEM_ADMIN'].includes(msg.role)) {
+            logger.security(`Tentativa de elevação de privilégio não autorizada via WebSocket bloqueada`, {
+              requestedRole: msg.role,
+              ip: conn.ip
+            });
+            conn.ws.send(
+              JSON.stringify({
+                event: 'auth.forbidden',
+                payload: { message: `Acesso negado. O perfil ${msg.role} exige token Bearer de autenticação.` },
+                timestamp: new Date().toISOString()
+              })
+            );
+            return;
+          }
         }
 
         this.sendAuthoritativeState(conn);
@@ -205,8 +254,21 @@ class VozPlayWSServer {
       }
 
       case 'PARTICIPANT_START_TURN': {
-        const pId = conn.participantId || msg.participantId;
-        const result = db.startTurn(pId, msg.queueItemId);
+        // Apenas o participante dono da vez ou operador autenticado pode iniciar
+        const pId = conn.participantId || (conn.isAuthenticated ? conn.actorId : undefined);
+        if (!pId) {
+          conn.ws.send(
+            JSON.stringify({
+              event: 'player.error',
+              sessionId: db.session.id,
+              payload: { error: 'Participante não autenticado para iniciar a vez.' },
+              timestamp: new Date().toISOString()
+            })
+          );
+          return;
+        }
+
+        const result = await db.startTurn(pId, msg.queueItemId);
         if (result.success && result.item) {
           this.broadcast('participant.turn_started', { item: result.item });
           this.broadcast('player.play', { item: result.item });
@@ -224,172 +286,130 @@ class VozPlayWSServer {
         break;
       }
 
-      case 'TV_PLAYER_STATE': {
-        // Validação estrita de autorização: apenas TV pode enviar estado do player
-        if (conn.role !== 'TV') {
-          logger.security('Tentativa não autorizada de emitir TV_PLAYER_STATE por cliente que não é TV', {
-            clientRole: conn.role,
-            ip: conn.ip
-          });
-          return;
+      case 'TV_HEARTBEAT': {
+        if (conn.role === 'TV') {
+          db.tvConnected = true;
+          db.lastTvHeartbeat = Date.now();
         }
+        break;
+      }
 
-        db.playbackState.status = msg.playbackState;
-        db.playbackState.currentTimeSec = msg.currentTimeSec || 0;
-        db.playbackState.updatedAt = new Date().toISOString();
-        await db.persistPlaybackState();
-
-        if (msg.playbackState === 'COMPLETED') {
-          this.handleSongCompleted();
-        } else {
-          this.broadcast('player.state_changed', {
-            playbackState: db.playbackState.status,
-            currentQueueItemId: db.playbackState.currentQueueItemId
+      case 'REACTION': {
+        // Reações da plateia para o telão
+        if (msg.emoji && typeof msg.emoji === 'string') {
+          const emoji = msg.emoji.slice(0, 10);
+          db.recordTvReaction(conn.participantId, emoji, msg.label);
+          this.broadcast('reaction.received', {
+            emoji,
+            label: msg.label,
+            participantId: conn.participantId,
+            timestamp: new Date().toISOString()
           });
         }
         break;
       }
 
-      case 'TV_PLAYER_ERROR': {
-        if (conn.role !== 'TV') {
-          logger.security('Tentativa não autorizada de emitir TV_PLAYER_ERROR por cliente que não é TV', {
-            clientRole: conn.role,
-            ip: conn.ip
-          });
-          return;
-        }
-
-        const currentItem = db.queue.find(q => q.status === 'PLAYING');
-        if (currentItem) {
-          currentItem.status = 'ERROR';
-          currentItem.errorMessage = msg.error || 'Erro no YouTube Embed (vídeo indisponível ou bloqueado)';
-          await db.persistQueueItem(currentItem);
-        }
-        db.playbackState.status = 'ERROR';
-        db.metrics.playbackErrors++;
-        await db.persistPlaybackState();
-
-        this.broadcast('player.error', {
-          error: msg.error || 'Falha ao reproduzir vídeo no YouTube',
-          item: currentItem
-        });
-
-        db.addNotification(
-          'playback_error',
-          'Erro de Reprodução na TV',
-          `Não foi possível carregar a música "${currentItem?.musicTitle || ''}". O Controlador foi alertado.`,
-          'error'
-        );
+      default: {
+        logger.info(`Evento WebSocket recebido: ${msg.type}`, { role: conn.role, actorId: conn.actorId });
         break;
       }
     }
   }
 
-  private async handleSongCompleted() {
-    const currentItem = db.queue.find(q => q.status === 'PLAYING');
-    if (currentItem) {
-      currentItem.status = 'COMPLETED';
-      currentItem.completedAt = new Date().toISOString();
-      db.metrics.totalSongsPlayed++;
-      await db.persistQueueItem(currentItem);
-
-      db.logAudit(
-        'SYSTEM',
-        'AutoPlayer',
-        'SONG_COMPLETED',
-        `Música concluída: ${currentItem.musicTitle} cantada por ${currentItem.participantDisplayName}`
-      );
-    }
-
-    db.playbackState.currentQueueItemId = null;
-    db.playbackState.status = 'IDLE';
-    await db.persistPlaybackState();
-
-    // Disparar chamada de 30 segundos para o próximo participante elegível
-    if (db.session.status === 'ACTIVE') {
-      const call = db.callNextParticipant('SYSTEM', 'AutoPlayer');
-      if (call) {
-        this.broadcast('participant.turn_called', { callingState: call });
-      } else {
-        this.broadcast('queue.completed', { item: currentItem });
-      }
-    } else {
-      this.broadcast('queue.completed', { item: currentItem });
-    }
-
-    this.broadcastAuthoritativeState();
-  }
-
+  /**
+   * Envia o estado autoritativo completo para uma conexão específica
+   */
   public sendAuthoritativeState(conn: ClientConnection) {
     if (conn.ws.readyState !== WebSocket.OPEN) return;
 
     if (conn.role === 'TV') {
-      // Send strict TVSessionDTO (no private user data, WhatsApp or internal tokens)
-      const tvDto = db.getTVSessionDTO();
+      const tvDTO = db.getTVSessionDTO();
       conn.ws.send(
         JSON.stringify({
-          event: 'state.sync',
+          event: 'state.tv_sync',
           sessionId: db.session.id,
-          payload: { tv: tvDto },
+          payload: tvDTO,
           timestamp: new Date().toISOString()
         })
       );
     } else {
-      // Send full state for participant/controller/supervisor
+      const statePayload = {
+        session: db.session,
+        queue: db.queue,
+        playbackState: db.playbackState,
+        callingState: db.callingState,
+        tvConnected: db.tvConnected,
+        presenceCode: ['CONTROLLER', 'SUPERVISOR', 'SYSTEM_ADMIN'].includes(conn.role) ? db.getPresenceCode() : undefined,
+        branding: db.session.branding,
+        metrics: ['CONTROLLER', 'SUPERVISOR', 'SYSTEM_ADMIN'].includes(conn.role) ? db.metrics : undefined
+      };
+
       conn.ws.send(
         JSON.stringify({
-          event: 'state.sync',
+          event: 'state.full_sync',
           sessionId: db.session.id,
-          payload: {
-            session: db.session,
-            queue: db.queue,
-            playbackState: db.playbackState,
-            callingState: db.callingState,
-            presenceCode: conn.role === 'CONTROLLER' || conn.role === 'SUPERVISOR' ? db.getPresenceCode() : undefined,
-            participantsCount: db.participants.size,
-            tvConnected: db.tvConnected,
-            metrics: conn.role === 'SUPERVISOR' ? db.metrics : undefined,
-            notifications: conn.role === 'SUPERVISOR' ? db.notifications : undefined
-          },
+          payload: statePayload,
           timestamp: new Date().toISOString()
         })
       );
     }
   }
 
-  public broadcast<T>(event: WSEventType, payload: T) {
-    const msg: WSMessage<T> = {
+  /**
+   * Propaga evento para todos os clientes conectados
+   */
+  public broadcast(event: WSEventType | string, payload: any = {}) {
+    const msg = JSON.stringify({
       event,
       sessionId: db.session.id,
       payload,
       timestamp: new Date().toISOString()
-    };
-    const serialized = JSON.stringify(msg);
+    });
 
     this.clients.forEach((conn) => {
       if (conn.ws.readyState === WebSocket.OPEN) {
-        // If event is state sync or affects TV, ensure TV gets sanitized payload
-        if (conn.role === 'TV') {
-          const tvDto = db.getTVSessionDTO();
+        // Garantia de privacidade: TV NUNCA recebe payloads com telefones ou tokens
+        if (conn.role === 'TV' && (event.startsWith('participant.') || event.startsWith('queue.'))) {
+          const sanitizedPayload = { ...payload };
+          delete sanitizedPayload.whatsapp;
+          delete sanitizedPayload.token;
+          delete sanitizedPayload.phone;
           conn.ws.send(
             JSON.stringify({
               event,
               sessionId: db.session.id,
-              payload: { ...payload, tv: tvDto },
+              payload: sanitizedPayload,
               timestamp: new Date().toISOString()
             })
           );
         } else {
-          conn.ws.send(serialized);
+          conn.ws.send(msg);
         }
       }
     });
   }
 
+  /**
+   * Transmite o estado autoritativo para toda a rede
+   */
   public broadcastAuthoritativeState() {
     this.clients.forEach((conn) => {
       this.sendAuthoritativeState(conn);
     });
+  }
+
+  /**
+   * Revoga e desconecta conexões ativas de um papel específico (ex: Takeover emergencial do Supervisor - Requisito 18)
+   */
+  public disconnectClientsByRole(role: UserRole, reason = 'Acesso revogado pelo Supervisor') {
+    for (const conn of this.clients) {
+      if (conn.role === role) {
+        try {
+          conn.ws.close(4003, reason);
+        } catch {}
+        this.clients.delete(conn);
+      }
+    }
   }
 }
 

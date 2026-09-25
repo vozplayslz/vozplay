@@ -39,6 +39,23 @@ import { pgClient } from './pgClient.js';
 import { logger } from './logger.js';
 import { AsyncMutex } from './asyncMutex.js';
 
+// Matriz autoritativa de transições permitidas para a fila (Requisito 10)
+const VALID_QUEUE_TRANSITIONS: Record<string, string[]> = {
+  QUEUED: ['CALLED', 'CANCELLED', 'CANCELLED_SESSION_ENDED', 'ERROR'],
+  CALLED: ['PLAYING', 'QUEUED', 'CANCELLED', 'CANCELLED_SESSION_ENDED', 'ERROR'],
+  PLAYING: ['COMPLETED', 'ERROR', 'CANCELLED', 'CANCELLED_SESSION_ENDED'],
+  COMPLETED: [],
+  CANCELLED: [],
+  CANCELLED_SESSION_ENDED: [],
+  ERROR: ['QUEUED', 'CANCELLED']
+};
+
+export function isValidQueueTransition(from: string, to: string): boolean {
+  if (from === to) return true;
+  const allowed = VALID_QUEUE_TRANSITIONS[from];
+  return allowed ? allowed.includes(to) : false;
+}
+
 // Acervo de Letras Oficiais Autorizadas (Abstração Conforme Diretriz do Projeto)
 const AUTHORIZED_LYRICS: Record<string, SongLyrics> = {
   'm-1': {
@@ -609,19 +626,21 @@ class VozPlayDB {
     };
     this.brandings.set('est-slz-lounge', defaultEstBranding);
 
+    const isDemoSeed = process.env.SEED_DEMO === 'true';
+
     this.session = {
       id: 'sess-slz-01',
       establishmentId: 'est-slz-lounge',
       establishmentName: 'VozPlay Lounge São Luís',
-      name: 'Noite de Karaokê - Sexta Premium',
+      name: isDemoSeed ? 'Noite de Karaokê - Sexta Premium' : 'Sessão de Karaokê VozPlay',
       code: 'SLZ-704',
       status: 'ACTIVE',
       startedAt: now.toISOString(),
       scheduledEndTime: endTime.toISOString(),
-      activeControllerId: 'ctrl-carlos',
-      activeControllerName: 'Carlos (Operador de Som)',
-      supervisorId: 'sup-renata',
-      supervisorName: 'Renata (Gerente)',
+      activeControllerId: isDemoSeed ? 'ctrl-carlos' : undefined,
+      activeControllerName: isDemoSeed ? 'Carlos (Operador de Som)' : undefined,
+      supervisorId: isDemoSeed ? 'sup-renata' : 'sup-admin',
+      supervisorName: isDemoSeed ? 'Renata (Gerente)' : 'Supervisor da Unidade',
       createdAt: now.toISOString(),
       branding: this.getBrandingDTO('est-slz-lounge')
     };
@@ -636,8 +655,10 @@ class VozPlayDB {
       updatedAt: new Date().toISOString()
     };
 
-    // Seed some initial participants and history for immediate realistic experience
-    this.seedInitialSessionData();
+    // Seed some initial participants and history ONLY if explicit demo seed is enabled
+    if (isDemoSeed) {
+      this.seedInitialSessionData();
+    }
   }
 
   /**
@@ -840,10 +861,20 @@ class VozPlayDB {
       );
     } catch (err) {
       logger.error('Erro ao persistir sessão no PostgreSQL:', err);
+      throw err;
     }
   }
 
   public async persistQueueItem(item: QueueItem): Promise<void> {
+    const existing = this.queue.find(q => q.id === item.id);
+    if (existing && existing.status !== item.status) {
+      if (!isValidQueueTransition(existing.status, item.status)) {
+        const errorMsg = `Transição de estado inválida para o item ${item.id}: não é permitido transicionar de ${existing.status} para ${item.status}.`;
+        logger.error(errorMsg);
+        throw new Error(errorMsg);
+      }
+    }
+
     if (!pgClient.isConnected) return;
     try {
       await pgClient.query(
@@ -891,6 +922,7 @@ class VozPlayDB {
       );
     } catch (err) {
       logger.error('Erro ao persistir item de fila no PostgreSQL:', err);
+      throw err;
     }
   }
 
@@ -906,6 +938,7 @@ class VozPlayDB {
       }
     } catch (err) {
       logger.error('Erro ao persistir reindexação da fila no PostgreSQL:', err);
+      throw err;
     }
   }
 
@@ -932,6 +965,7 @@ class VozPlayDB {
       );
     } catch (err) {
       logger.error('Erro ao persistir playback state no PostgreSQL:', err);
+      throw err;
     }
   }
 
@@ -958,6 +992,7 @@ class VozPlayDB {
       );
     } catch (err) {
       logger.error('Erro ao persistir participante no PostgreSQL:', err);
+      throw err;
     }
   }
 
@@ -988,6 +1023,7 @@ class VozPlayDB {
       );
     } catch (err) {
       logger.error('Erro ao persistir lead no PostgreSQL:', err);
+      throw err;
     }
   }
 
@@ -1036,6 +1072,7 @@ class VozPlayDB {
       );
     } catch (err) {
       logger.error('Erro ao persistir branding no PostgreSQL:', err);
+      throw err;
     }
   }
 
@@ -1282,13 +1319,13 @@ class VozPlayDB {
    * João: A, B, C | Maria: D, E | Pedro: F
    * Resultado na Fila: João A, Maria D, Pedro F, João B, Maria E, João C
    */
-  public addSongToQueue(
+  public async addSongToQueue(
     participant: Participant,
     music: Music,
     version: any,
     toneOffset: number = 0,
     duetOptions?: { isDuet?: boolean; partnerDisplayName?: string; partnerParticipantId?: string }
-  ): QueueItem {
+  ): Promise<QueueItem> {
     // Quantas músicas este participante já tem com status QUEUED
     const participantQueuedCount = this.queue.filter(
       item => item.participantId === participant.id && item.status === 'QUEUED'
@@ -1343,7 +1380,7 @@ class VozPlayDB {
       this.queue.push(newItem);
     }
 
-    this.reindexQueue();
+    await this.reindexQueue();
 
     this.metrics.totalSongsQueued++;
     this.logAudit(
@@ -1353,18 +1390,18 @@ class VozPlayDB {
       `Música adicionada à fila rotativa (Ciclo ${targetRound}): ${music.title} (${version.style})`
     );
 
-    this.persistQueueItem(newItem);
+    await this.persistQueueItem(newItem);
     return newItem;
   }
 
-  public reindexQueue() {
+  public async reindexQueue(): Promise<void> {
     let activeIdx = 0;
     for (const item of this.queue) {
       if (item.status === 'QUEUED' || item.status === 'CALLED' || item.status === 'PLAYING') {
         item.orderIndex = activeIdx++;
       }
     }
-    this.persistQueueReindex();
+    await this.persistQueueReindex();
   }
 
   /**
@@ -1388,84 +1425,176 @@ class VozPlayDB {
    * PRD & User Spec: CHAMADA DO PARTICIPANTE (30 Segundos Autoritativos no Servidor)
    * Dispara a transição para CALLING_PARTICIPANT na TV, no celular e no operador.
    */
-  public callNextParticipant(actorRole = 'CONTROLLER', actorName = 'Controlador'): CallingParticipantState | null {
-    if (this.session.status !== 'ACTIVE') {
-      return null;
-    }
+  public async callNextParticipant(actorRole = 'CONTROLLER', actorName = 'Controlador'): Promise<CallingParticipantState | null> {
+    return this.queueMutex.runExclusive(async () => {
+      if (this.session.status !== 'ACTIVE') {
+        return null;
+      }
 
-    // Se já está reproduzindo uma música, não sobrepõe
-    if (this.playbackState.status === 'PLAYING') {
-      return null;
-    }
+      // Se já está reproduzindo uma música, não sobrepõe
+      if (this.playbackState.status === 'PLAYING') {
+        return null;
+      }
 
-    // Se já existe uma chamada ativa, recalcula e retorna
-    if (this.callingState && this.playbackState.status === 'CALLING_PARTICIPANT') {
-      const remainingSec = Math.max(0, Math.ceil((new Date(this.callingState.expiresAt).getTime() - Date.now()) / 1000));
-      this.callingState.remainingSeconds = remainingSec;
+      // Se já existe uma chamada ativa, recalcula e retorna
+      if (this.callingState && this.playbackState.status === 'CALLING_PARTICIPANT') {
+        const remainingSec = Math.max(0, Math.ceil((new Date(this.callingState.expiresAt).getTime() - Date.now()) / 1000));
+        this.callingState.remainingSeconds = remainingSec;
+        return this.callingState;
+      }
+
+      // Se PostgreSQL estiver conectado, usa transação com SELECT FOR UPDATE SKIP LOCKED para proteger contra concorrência
+      if (pgClient.isConnected) {
+        try {
+          const txResult = await pgClient.withTransaction(async (client) => {
+            const res = await client.query(
+              `SELECT id FROM queue_items 
+               WHERE session_id = $1 AND status = 'QUEUED' 
+               ORDER BY order_index ASC 
+               LIMIT 1 
+               FOR UPDATE SKIP LOCKED`,
+              [this.session.id]
+            );
+
+            if (res.rows.length === 0) {
+              return null;
+            }
+
+            const chosenId = res.rows[0].id;
+            const now = new Date();
+            const expiresAt = new Date(now.getTime() + 30 * 1000);
+
+            await client.query(
+              `UPDATE queue_items 
+               SET status = 'CALLED', called_at = $1, call_expires_at = $2 
+               WHERE id = $3`,
+              [now.toISOString(), expiresAt.toISOString(), chosenId]
+            );
+
+            await client.query(
+              `UPDATE playback_states 
+               SET status = 'CALLING_PARTICIPANT', current_queue_item_id = $1, updated_at = $2 
+               WHERE session_id = $3`,
+              [chosenId, now.toISOString(), this.session.id]
+            );
+
+            return { chosenId, now, expiresAt };
+          });
+
+          if (!txResult) {
+            return null;
+          }
+
+          const nextItem = this.queue.find(q => q.id === txResult.chosenId);
+          if (nextItem) {
+            nextItem.status = 'CALLED';
+            nextItem.calledAt = txResult.now.toISOString();
+            nextItem.callExpiresAt = txResult.expiresAt.toISOString();
+            if (nextItem.missedTurnCount === undefined) {
+              nextItem.missedTurnCount = 0;
+            }
+
+            this.callingState = {
+              queueItemId: nextItem.id,
+              participantId: nextItem.participantId,
+              participantDisplayName: nextItem.participantDisplayName,
+              partnerParticipantId: nextItem.partnerParticipantId,
+              partnerDisplayName: nextItem.partnerDisplayName,
+              isDuet: nextItem.isDuet,
+              musicId: nextItem.musicId,
+              musicTitle: nextItem.musicTitle,
+              musicArtist: nextItem.musicArtist,
+              versionId: nextItem.versionId,
+              versionStyle: nextItem.versionStyle,
+              youtubeVideoId: nextItem.youtubeVideoId,
+              toneOffset: nextItem.toneOffset,
+              calledAt: nextItem.calledAt,
+              expiresAt: nextItem.callExpiresAt,
+              remainingSeconds: 30,
+              missedTurnCount: nextItem.missedTurnCount
+            };
+
+            this.playbackState.status = 'CALLING_PARTICIPANT';
+            this.playbackState.currentQueueItemId = nextItem.id;
+            this.playbackState.updatedAt = txResult.now.toISOString();
+
+            this.logAudit(
+              actorRole as any,
+              actorName,
+              'TURN_CALLED',
+              `Chamada do participante: ${nextItem.participantDisplayName} para cantar "${nextItem.musicTitle}". Janela autoritativa de 30s iniciada.`
+            );
+
+            return this.callingState;
+          }
+        } catch (err) {
+          logger.error('Erro na transação atômica de callNextParticipant:', err);
+          throw err;
+        }
+      }
+
+      // Fallback em memória
+      const nextItem = this.queue.find(q => q.status === 'QUEUED');
+      if (!nextItem) {
+        return null;
+      }
+
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 30 * 1000);
+
+      nextItem.status = 'CALLED';
+      nextItem.calledAt = now.toISOString();
+      nextItem.callExpiresAt = expiresAt.toISOString();
+      if (nextItem.missedTurnCount === undefined) {
+        nextItem.missedTurnCount = 0;
+      }
+
+      this.callingState = {
+        queueItemId: nextItem.id,
+        participantId: nextItem.participantId,
+        participantDisplayName: nextItem.participantDisplayName,
+        partnerParticipantId: nextItem.partnerParticipantId,
+        partnerDisplayName: nextItem.partnerDisplayName,
+        isDuet: nextItem.isDuet,
+        musicId: nextItem.musicId,
+        musicTitle: nextItem.musicTitle,
+        musicArtist: nextItem.musicArtist,
+        versionId: nextItem.versionId,
+        versionStyle: nextItem.versionStyle,
+        youtubeVideoId: nextItem.youtubeVideoId,
+        toneOffset: nextItem.toneOffset,
+        calledAt: nextItem.calledAt,
+        expiresAt: nextItem.callExpiresAt,
+        remainingSeconds: 30,
+        missedTurnCount: nextItem.missedTurnCount
+      };
+
+      this.playbackState.status = 'CALLING_PARTICIPANT';
+      this.playbackState.currentQueueItemId = nextItem.id;
+      this.playbackState.updatedAt = now.toISOString();
+
+      this.logAudit(
+        actorRole as any,
+        actorName,
+        'TURN_CALLED',
+        `Chamada do participante: ${nextItem.participantDisplayName} para cantar "${nextItem.musicTitle}". Janela autoritativa de 30s iniciada.`
+      );
+
+      await this.persistQueueItem(nextItem);
+      await this.persistPlaybackState();
+
       return this.callingState;
-    }
-
-    // Localizar o próximo item elegível na fila com status QUEUED
-    const nextItem = this.queue.find(q => q.status === 'QUEUED');
-    if (!nextItem) {
-      return null;
-    }
-
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 30 * 1000); // 30 segundos exatos
-
-    nextItem.status = 'CALLED';
-    nextItem.calledAt = now.toISOString();
-    nextItem.callExpiresAt = expiresAt.toISOString();
-    if (nextItem.missedTurnCount === undefined) {
-      nextItem.missedTurnCount = 0;
-    }
-
-    this.callingState = {
-      queueItemId: nextItem.id,
-      participantId: nextItem.participantId,
-      participantDisplayName: nextItem.participantDisplayName,
-      partnerParticipantId: nextItem.partnerParticipantId,
-      partnerDisplayName: nextItem.partnerDisplayName,
-      isDuet: nextItem.isDuet,
-      musicId: nextItem.musicId,
-      musicTitle: nextItem.musicTitle,
-      musicArtist: nextItem.musicArtist,
-      versionId: nextItem.versionId,
-      versionStyle: nextItem.versionStyle,
-      youtubeVideoId: nextItem.youtubeVideoId,
-      toneOffset: nextItem.toneOffset,
-      calledAt: nextItem.calledAt,
-      expiresAt: nextItem.callExpiresAt,
-      remainingSeconds: 30,
-      missedTurnCount: nextItem.missedTurnCount
-    };
-
-    this.playbackState.status = 'CALLING_PARTICIPANT';
-    this.playbackState.currentQueueItemId = nextItem.id;
-    this.playbackState.updatedAt = now.toISOString();
-
-    this.logAudit(
-      actorRole as any,
-      actorName,
-      'TURN_CALLED',
-      `Chamada do participante: ${nextItem.participantDisplayName} para cantar "${nextItem.musicTitle}". Janela autoritativa de 30s iniciada.`
-    );
-
-    this.persistQueueItem(nextItem);
-    this.persistPlaybackState();
-
-    return this.callingState;
+    });
   }
 
   /**
    * PRD & User Spec: COMEÇAR A CANTAR (Início da Apresentação pelo Participante)
    * Validações estritas de segurança (Sessão ativa, Participante correto, Janela de 30s, etc.)
    */
-  public startTurn(
+  public async startTurn(
     participantId: string,
     queueItemId?: string
-  ): { success: boolean; error?: string; item?: QueueItem } {
+  ): Promise<{ success: boolean; error?: string; item?: QueueItem }> {
     // Validação 1: Sessão ativa
     if (this.session.status !== 'ACTIVE') {
       return { success: false, error: 'A sessão não está ativa.' };
@@ -1525,8 +1654,8 @@ class VozPlayDB {
       `Apresentação iniciada dentro do prazo ("Começar a Cantar"): ${queueItem.musicTitle}`
     );
 
-    this.persistQueueItem(queueItem);
-    this.persistPlaybackState();
+    await this.persistQueueItem(queueItem);
+    await this.persistPlaybackState();
 
     return { success: true, item: queueItem };
   }
@@ -1534,12 +1663,12 @@ class VozPlayDB {
   /**
    * PRD & User Spec: VERIFICAÇÃO AUTORITATIVA DE TIMEOUT (Regras de 1ª e 2ª Perda da Vez)
    */
-  public checkCallingTimeout(): {
+  public async checkCallingTimeout(): Promise<{
     expired: boolean;
     item?: QueueItem;
     missedTurnCount?: number;
     movedToBack?: boolean;
-  } | null {
+  } | null> {
     if (!this.callingState || this.playbackState.status !== 'CALLING_PARTICIPANT') {
       return null;
     }
@@ -1587,8 +1716,8 @@ class VozPlayDB {
         `Primeira perda de vez: ${item.participantDisplayName} não iniciou a música "${item.musicTitle}" em 30s. Mantido na fila como próximo elegível.`
       );
 
-      this.persistQueueItem(item);
-      this.persistPlaybackState();
+      await this.persistQueueItem(item);
+      await this.persistPlaybackState();
 
       return {
         expired: true,
@@ -1610,7 +1739,7 @@ class VozPlayDB {
       item.missedTurnCount = 0; // Reset para os próximos ciclos
       item.calledAt = undefined;
       item.callExpiresAt = undefined;
-      this.reindexQueue();
+      await this.reindexQueue();
 
       this.callingState = null;
       this.playbackState.status = 'IDLE';
@@ -1630,8 +1759,8 @@ class VozPlayDB {
         `Item ${item.id} reposicionado ao fim da fila rotativa da sessão.`
       );
 
-      this.persistQueueItem(item);
-      this.persistPlaybackState();
+      await this.persistQueueItem(item);
+      await this.persistPlaybackState();
 
       return {
         expired: true,
@@ -1645,7 +1774,7 @@ class VozPlayDB {
   /**
    * Cancelamento manual da chamada pelo operador ou supervisor
    */
-  public cancelCall(reason = 'Cancelado pelo operador', actorRole = 'CONTROLLER', actorName = 'Controlador'): boolean {
+  public async cancelCall(reason = 'Cancelado pelo operador', actorRole = 'CONTROLLER', actorName = 'Controlador'): Promise<boolean> {
     if (!this.callingState || this.playbackState.status !== 'CALLING_PARTICIPANT') {
       return false;
     }
@@ -1655,14 +1784,14 @@ class VozPlayDB {
       item.status = 'QUEUED';
       item.calledAt = undefined;
       item.callExpiresAt = undefined;
-      this.persistQueueItem(item);
+      await this.persistQueueItem(item);
     }
 
     this.callingState = null;
     this.playbackState.status = 'IDLE';
     this.playbackState.currentQueueItemId = null;
     this.playbackState.updatedAt = new Date().toISOString();
-    this.persistPlaybackState();
+    await this.persistPlaybackState();
 
     this.logAudit(
       actorRole as any,

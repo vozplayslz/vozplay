@@ -45,7 +45,7 @@ import { playDJAudioEffect } from '../../utils/synthAudio.js';
 import { ParticipantSidebar, ParticipantSubTab } from './ParticipantSidebar.js';
 import { RecommendedPlaylistView } from './RecommendedPlaylistView.js';
 import { QRScannerModal } from './QRScannerModal.js';
-import { apiFetch as fetch } from '../../utils/apiClient.js';
+import { apiFetch as fetch, setStoredToken } from '../../utils/apiClient.js';
 import { VozPlayMascotIcon, VozPlayLogo } from '../common/VozPlayLogo.js';
 
 interface ParticipantViewProps {
@@ -434,6 +434,10 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
       if (!res.ok || !data.success) {
         setRegisterError(data.error || 'Falha ao registrar participante.');
         return;
+      }
+
+      if (data.token) {
+        setStoredToken('PARTICIPANT', data.token);
       }
 
       setParticipant(data.participant);

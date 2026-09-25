@@ -150,14 +150,16 @@ npm start
 
 As configurações devem ser declaradas no arquivo `.env`:
 
-| Variável | Padrão | Descrição |
+| Variável | Padrão / Exemplo | Descrição |
 | :--- | :--- | :--- |
 | `PORT` | `3000` | Porta única de escuta HTTP e WebSockets |
 | `NODE_ENV` | `production` | Modo de execução do ambiente |
 | `DOMAIN` | `vozplay.ai.slz.br` | Domínio público base dos QR Codes e links |
-| `DATABASE_URL` | `postgresql://vozplay_user:vozplay_secret_pass@localhost:5432/vozplay_db` | String de conexão com o PostgreSQL |
-| `SUPERVISOR_PASSWORD` | `vozplay@super2026` | Senha mestra do Supervisor / Painel Admin |
-| `CONTROLLER_PASSWORD` | `vozplay@ctrl704` | Senha mestra da Mesa de Som / Controlador |
+| `DATABASE_URL` | `postgresql://vozplay_user:sua_senha@db:5432/vozplay_db` | String de conexão com o PostgreSQL |
+| `SUPERVISOR_PASSWORD` | *(Obrigatório em .env)* | Senha mestra do Supervisor (Startup falha se ausente em prod) |
+| `CONTROLLER_PASSWORD` | *(Obrigatório em .env)* | Senha mestra da Mesa de Som (Startup falha se ausente em prod) |
+| `SEED_DEMO` | `false` | Se `true`, popula dados demonstrativos para testes pontuais |
+| `GEMINI_API_KEY` | `""` | Chave de API do Google Gemini para curadoria musical IA |
 
 ---
 

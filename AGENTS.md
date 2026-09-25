@@ -44,9 +44,10 @@ O **VozPlay** é uma plataforma profissional de karaokê desenvolvida para bares
 - **Gestão de Senhas e Operadores**:
   - O painel do Supervisor conta com a aba **"Usuários & Senhas"** (`SupervisorUsersSection.tsx`), permitindo cadastrar operadores individuais e alterar as senhas mestras.
   - Endpoints dedicados: `GET /api/v1/supervisor/users`, `POST /api/v1/supervisor/users`, `DELETE /api/v1/supervisor/users/:id` e `POST /api/v1/supervisor/change-password`.
-  - Senhas padrão de fábrica:
-    - Supervisor: `vozplay@super2026` *(aliases: admin123, super123)*
-    - Controlador: `vozplay@ctrl704` *(aliases: operador123, mesa123)*
+  - Senhas e credenciais:
+    - O sistema não utiliza senhas padrão hardcoded nem fallbacks inseguros.
+    - Em produção, `SUPERVISOR_PASSWORD` e `CONTROLLER_PASSWORD` são configuradas obrigatoriamente no `.env`.
+    - Hashes de senha são gerados com Argon2id (RFC 9106) e tokens criptográficos possuem revogação e expiração.
 
 ## 6. Módulo de Ajuda & Documentação
 - A interface global conta com a **Central de Ajuda & Guia Operacional** (`src/components/common/HelpModal.tsx`), acessível a qualquer momento pelo cabeçalho superior.

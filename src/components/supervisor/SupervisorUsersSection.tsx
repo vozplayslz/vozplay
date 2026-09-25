@@ -239,7 +239,7 @@ export const SupervisorUsersSection: React.FC = () => {
 
             <div className="flex items-center justify-between pt-1">
               <span className="text-[11px] text-slate-500">
-                Padrão inicial: <code className="text-amber-400/80 font-mono">vozplay@super2026</code>
+                Configurada via <code className="text-amber-400/80 font-mono">SUPERVISOR_PASSWORD</code>
               </span>
               <button
                 type="button"
@@ -290,7 +290,7 @@ export const SupervisorUsersSection: React.FC = () => {
 
             <div className="flex items-center justify-between pt-1">
               <span className="text-[11px] text-slate-500">
-                Padrão inicial: <code className="text-blue-400/80 font-mono">vozplay@ctrl704</code>
+                Configurada via <code className="text-blue-400/80 font-mono">CONTROLLER_PASSWORD</code>
               </span>
               <button
                 type="button"

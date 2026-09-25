@@ -86,6 +86,8 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       inferredRole = 'CONTROLLER';
     } else if (urlString.includes('/api/v1/tv/')) {
       inferredRole = 'TV';
+    } else if (urlString.includes('/api/v1/participant') || urlString.includes('/api/v1/queue/add')) {
+      inferredRole = 'PARTICIPANT';
     }
 
     if (inferredRole) {
@@ -93,16 +95,6 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       if (token && !headers.has('Authorization')) {
         headers.set('Authorization', `Bearer ${token}`);
       }
-      if (!headers.has('x-client-role')) {
-        headers.set('x-client-role', inferredRole);
-      }
-    }
-
-    if (!headers.has('x-establishment-id')) {
-      headers.set('x-establishment-id', 'est-slz-lounge');
-    }
-    if (!headers.has('x-session-id')) {
-      headers.set('x-session-id', 'sess-slz-01');
     }
   }
 

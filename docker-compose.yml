@@ -10,8 +10,8 @@ services:
       - PORT=3000
       - DATABASE_URL=postgresql://vozplay_user:vozplay_secret_pass@db:5432/vozplay_db
       - DOMAIN=vozplay.ai.slz.br
-      - SUPERVISOR_PASSWORD=${SUPERVISOR_PASSWORD:-vozplay@super2026}
-      - CONTROLLER_PASSWORD=${CONTROLLER_PASSWORD:-vozplay@ctrl704}
+      - SUPERVISOR_PASSWORD=${SUPERVISOR_PASSWORD}
+      - CONTROLLER_PASSWORD=${CONTROLLER_PASSWORD}
     env_file:
       - path: .env
         required: false

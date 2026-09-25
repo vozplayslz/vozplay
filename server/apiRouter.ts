@@ -27,17 +27,23 @@ apiRouter.post('/auth/login', async (req, res) => {
   const sessId = sessionId || db.session.id;
 
   // Login por e-mail e senha de usuário cadastrado
-  if (email && password) {
-    const user = authService.findUserByCredentials(email, password);
-    if (user) {
-      user.lastLogin = new Date().toISOString();
-      const tokenSession = await authService.createToken(user.role, estId, sessId, user.id, user.name, 24);
-      return res.json({ success: true, token: tokenSession.token, role: user.role, user: tokenSession });
+  if (email) {
+    if (!password) {
+      return res.status(400).json({ success: false, error: 'Senha é obrigatória para login por e-mail.' });
     }
+    const user = await authService.findUserByCredentials(email, password);
+    if (!user) {
+      logger.security('Tentativa de login com e-mail inexistente ou senha incorreta', { email, ip: req.ip });
+      return res.status(401).json({ success: false, error: 'E-mail ou senha incorretos.' });
+    }
+    user.lastLogin = new Date().toISOString();
+    const tokenSession = await authService.createToken(user.role, estId, sessId, user.id, user.name, 24);
+    return res.json({ success: true, token: tokenSession.token, role: user.role, user: tokenSession });
   }
 
   if (role === 'SUPERVISOR') {
-    if (!authService.verifySupervisorPassword(password)) {
+    const valid = await authService.verifySupervisorPassword(password);
+    if (!valid) {
       logger.security('Tentativa de login de Supervisor com senha inválida', { ip: req.ip, establishmentId: estId });
       return res.status(401).json({ success: false, error: 'Senha de Supervisor incorreta.' });
     }
@@ -46,7 +52,8 @@ apiRouter.post('/auth/login', async (req, res) => {
   }
 
   if (role === 'CONTROLLER') {
-    if (!authService.verifyControllerPassword(password)) {
+    const valid = await authService.verifyControllerPassword(password);
+    if (!valid) {
       logger.security('Tentativa de login de Controlador com credencial inválida', { ip: req.ip, establishmentId: estId });
       return res.status(401).json({ success: false, error: 'Código de acesso do Controlador incorreto.' });
     }
@@ -59,16 +66,20 @@ apiRouter.post('/auth/login', async (req, res) => {
     return res.json({ success: true, token: tokenSession.token, role: 'TV', user: tokenSession });
   }
 
-  // PARTICIPANT (Default)
-  const tokenSession = await authService.createToken(
-    'PARTICIPANT',
-    estId,
-    sessId,
-    participantId || ('p-' + Date.now()),
-    displayName || 'Participante Convidado',
-    6
-  );
-  return res.json({ success: true, token: tokenSession.token, role: 'PARTICIPANT', user: tokenSession });
+  if (role === 'PARTICIPANT' || (!role && !email)) {
+    // PARTICIPANT
+    const tokenSession = await authService.createToken(
+      'PARTICIPANT',
+      estId,
+      sessId,
+      participantId || ('p-' + Date.now()),
+      displayName || 'Participante Convidado',
+      6
+    );
+    return res.json({ success: true, token: tokenSession.token, role: 'PARTICIPANT', user: tokenSession });
+  }
+
+  return res.status(400).json({ success: false, error: 'Papel ou credenciais de acesso inválidas.' });
 });
 
 // ==========================================
@@ -162,8 +173,20 @@ apiRouter.post('/session/end', requireRole(['SUPERVISOR']), async (req, res) => 
 apiRouter.post('/participants/register', async (req, res) => {
   const { displayName, whatsapp, consentMarketing } = req.body;
 
-  if (!displayName || !displayName.trim()) {
+  if (!displayName || typeof displayName !== 'string' || !displayName.trim()) {
     return res.status(400).json({ error: 'O nome do participante é obrigatório.' });
+  }
+
+  const cleanName = displayName.trim().substring(0, 60);
+  if (cleanName.length < 2) {
+    return res.status(400).json({ error: 'O nome deve possuir no mínimo 2 caracteres.' });
+  }
+
+  if (whatsapp && typeof whatsapp === 'string') {
+    const rawDigits = whatsapp.replace(/\D/g, '');
+    if (rawDigits.length > 0 && (rawDigits.length < 10 || rawDigits.length > 15)) {
+      return res.status(400).json({ error: 'Número de WhatsApp inválido. Informe o DDD + número.' });
+    }
   }
 
   const pId = 'p-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
@@ -238,15 +261,30 @@ apiRouter.post('/participants/register', async (req, res) => {
   db.logAudit('PARTICIPANT', participant.displayName, 'PARTICIPANT_JOIN', 'Participante entrou na sessão.');
   wsServer.broadcast('participant.joined', { participant: { id: participant.id, displayName: participant.displayName } });
 
+  const authSession = await authService.createToken(
+    'PARTICIPANT',
+    db.session.establishmentId,
+    db.session.id,
+    participant.id,
+    participant.displayName,
+    24
+  );
+
   res.json({
     success: true,
     participant,
+    token: authSession.token,
     history: pastHistory
   });
 });
 
 apiRouter.post('/participants/verify-presence', async (req, res) => {
   const { participantId, code } = req.body;
+
+  if (!code || typeof code !== 'string' || !/^\d{4}$/.test(code.trim())) {
+    return res.status(400).json({ error: 'O código de presença deve conter exatamente 4 dígitos numéricos.' });
+  }
+
   const participant = db.participants.get(participantId);
 
   if (!participant) {
@@ -458,12 +496,12 @@ const handleGenreRecommendation = async (
   }
 };
 
-apiRouter.post('/recommendations/genre', async (req, res) => {
+apiRouter.post(['/recommendations', '/recommendations/genre'], async (req, res) => {
   const { genre, mood, participantName } = req.body;
   await handleGenreRecommendation(genre, mood, participantName, res);
 });
 
-apiRouter.get('/recommendations/genre', async (req, res) => {
+apiRouter.get(['/recommendations', '/recommendations/genre'], async (req, res) => {
   const genre = req.query.genre as string | undefined;
   const mood = req.query.mood as string | undefined;
   const participantName = req.query.participantName as string | undefined;
@@ -686,12 +724,13 @@ apiRouter.post('/queue/add', async (req, res) => {
 
   const version = music.versions.find(v => v.id === versionId) || music.versions[0];
 
+  const sanitizedToneOffset = Math.max(-3, Math.min(3, Math.trunc(Number(toneOffset) || 0)));
   const queueItem = await db.queueMutex.runExclusive(async () => {
     return db.addSongToQueue(
       participant,
       music,
       version,
-      Number(toneOffset) || 0,
+      sanitizedToneOffset,
       {
         isDuet: Boolean(isDuet),
         partnerDisplayName: typeof partnerDisplayName === 'string' ? partnerDisplayName : undefined,
@@ -802,12 +841,13 @@ apiRouter.post('/queue/request', async (req, res) => {
     version = music.versions.find(v => v.style.toLowerCase() === (versionStyle || 'karaoke').toLowerCase()) || music.versions[0];
   }
 
+  const sanitizedToneOffset = Math.max(-3, Math.min(3, Math.trunc(Number(toneOffset) || 0)));
   const queueItem = await db.queueMutex.runExclusive(async () => {
     return db.addSongToQueue(
       participant,
       music,
       version,
-      Number(toneOffset) || 0,
+      sanitizedToneOffset,
       {
         isDuet: Boolean(isDuet),
         partnerDisplayName: typeof partnerDisplayName === 'string' ? partnerDisplayName : undefined
@@ -874,7 +914,7 @@ apiRouter.post('/queue/cancel', async (req, res) => {
   await db.queueMutex.runExclusive(async () => {
     item.status = 'CANCELLED';
     db.metrics.totalCancellations++;
-    db.reindexQueue();
+    await db.reindexQueue();
     await db.persistQueueItem(item);
   });
 
@@ -895,7 +935,7 @@ apiRouter.post('/queue/cancel', async (req, res) => {
 });
 
 // Section 43: Compartilhar Minha Vez (SEM vazar WhatsApp)
-apiRouter.get('/queue/share/:queueItemId', (req, res) => {
+apiRouter.get(['/queue/share/:queueItemId', '/queue/track/:queueItemId', '/tracker/:queueItemId'], (req, res) => {
   const item = db.queue.find(q => q.id === req.params.queueItemId);
   if (!item) {
     return res.status(404).json({ error: 'Item não encontrado.' });
@@ -938,40 +978,51 @@ apiRouter.get('/controller/presence-code', requireRole(['CONTROLLER', 'SUPERVISO
 });
 
 // PRD: Chamar Próximo Participante (Janela de 30s)
-apiRouter.post('/controller/call-next', requireRole(['CONTROLLER', 'SUPERVISOR']), (req, res) => {
-  const call = db.callNextParticipant('CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
-  if (!call) {
-    return res.status(400).json({
-      success: false,
-      error: 'Não há músicas na fila ou a sessão não está ativa.'
-    });
-  }
+apiRouter.post('/controller/call-next', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
+  try {
+    const call = await db.callNextParticipant('CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
+    if (!call) {
+      return res.status(400).json({
+        success: false,
+        error: 'Não há músicas na fila ou a sessão não está ativa.'
+      });
+    }
 
-  wsServer.broadcast('participant.turn_called', { callingState: call });
-  wsServer.broadcastAuthoritativeState();
-  res.json({ success: true, callingState: call });
+    wsServer.broadcast('participant.turn_called', { callingState: call });
+    wsServer.broadcastAuthoritativeState();
+    res.json({ success: true, callingState: call });
+  } catch (err: any) {
+    logger.error('Erro ao chamar próximo participante:', err);
+    res.status(500).json({ success: false, error: 'Erro interno ao chamar participante.' });
+  }
 });
 
 // PRD: Cancelar Chamada do Participante
-apiRouter.post('/controller/call-cancel', requireRole(['CONTROLLER', 'SUPERVISOR']), (req, res) => {
-  const { reason } = req.body;
-  const ok = db.cancelCall(reason || 'Cancelado pelo operador', 'CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
-  if (!ok) {
-    return res.status(400).json({ success: false, error: 'Nenhuma chamada ativa para cancelar.' });
-  }
+apiRouter.post('/controller/call-cancel', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const ok = await db.cancelCall(reason || 'Cancelado pelo operador', 'CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
+    if (!ok) {
+      return res.status(400).json({ success: false, error: 'Nenhuma chamada ativa para cancelar.' });
+    }
 
-  wsServer.broadcastAuthoritativeState();
-  res.json({ success: true, message: 'Chamada cancelada com sucesso.' });
+    wsServer.broadcastAuthoritativeState();
+    res.json({ success: true, message: 'Chamada cancelada com sucesso.' });
+  } catch (err: any) {
+    logger.error('Erro ao cancelar chamada:', err);
+    res.status(500).json({ success: false, error: 'Erro interno ao cancelar chamada.' });
+  }
 });
 
 // PRD & User Spec: Começar a Cantar (Início da Apresentação pelo Participante)
-apiRouter.post('/participant/start-turn', (req, res) => {
-  const { participantId, queueItemId } = req.body;
+apiRouter.post('/participant/start-turn', async (req, res) => {
+  const { queueItemId } = req.body;
+  const participantId = (req.user?.role === 'PARTICIPANT' ? req.user.actorId : req.body.participantId) || req.body.participantId;
   if (!participantId) {
     return res.status(400).json({ success: false, error: 'Identificador do participante não fornecido.' });
   }
 
-  const result = db.startTurn(participantId, queueItemId);
+  const result = await db.startTurn(participantId, queueItemId);
   if (!result.success || !result.item) {
     return res.status(400).json({ success: false, error: result.error || 'Falha ao iniciar a vez.' });
   }
@@ -988,13 +1039,14 @@ apiRouter.post('/participant/start-turn', (req, res) => {
   });
 });
 
-apiRouter.post('/participants/start-turn', (req, res) => {
-  const { participantId, queueItemId } = req.body;
+apiRouter.post('/participants/start-turn', async (req, res) => {
+  const { queueItemId } = req.body;
+  const participantId = (req.user?.role === 'PARTICIPANT' ? req.user.actorId : req.body.participantId) || req.body.participantId;
   if (!participantId) {
     return res.status(400).json({ success: false, error: 'Identificador do participante não fornecido.' });
   }
 
-  const result = db.startTurn(participantId, queueItemId);
+  const result = await db.startTurn(participantId, queueItemId);
   if (!result.success || !result.item) {
     return res.status(400).json({ success: false, error: result.error || 'Falha ao iniciar a vez.' });
   }
@@ -1094,7 +1146,7 @@ apiRouter.post('/controller/pause', requireRole(['CONTROLLER', 'SUPERVISOR']), a
   res.json({ success: true, playbackState: db.playbackState });
 });
 
-apiRouter.post('/controller/next', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
+apiRouter.post('/controller/next', requireRole(['CONTROLLER', 'SUPERVISOR', 'TV']), async (req, res) => {
   const currentItem = db.queue.find(q => q.status === 'PLAYING');
   if (currentItem) {
     currentItem.status = 'COMPLETED';
@@ -1111,13 +1163,13 @@ apiRouter.post('/controller/next', requireRole(['CONTROLLER', 'SUPERVISOR']), as
 
   // Se havia chamada ativa, cancela
   if (db.callingState) {
-    db.cancelCall('Avançado pelo controlador', 'CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
+    await db.cancelCall('Avançado pelo controlador', 'CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
   }
 
   // Dispara chamada do próximo participante se houver música na fila
   const nextItem = db.queue.find(q => q.status === 'QUEUED');
   if (nextItem && db.session.status === 'ACTIVE') {
-    const call = db.callNextParticipant('CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
+    const call = await db.callNextParticipant('CONTROLLER', req.user?.actorName || db.session.activeControllerName || 'Controlador');
     if (call) {
       wsServer.broadcast('participant.turn_called', { callingState: call });
     }
@@ -1182,7 +1234,7 @@ apiRouter.post('/controller/requeue-error', requireRole(['CONTROLLER', 'SUPERVIS
     const activeQueued = db.queue.filter(q => q.id !== currentItem.id && q.status === 'QUEUED');
     const otherItems = db.queue.filter(q => q.id !== currentItem.id && q.status !== 'QUEUED');
     db.queue = [...otherItems, currentItem, ...activeQueued];
-    db.reindexQueue();
+    await db.reindexQueue();
 
     db.playbackState.status = 'IDLE';
     db.playbackState.currentQueueItemId = null;
@@ -1227,7 +1279,7 @@ apiRouter.post('/controller/queue/promote', requireRole(['CONTROLLER', 'SUPERVIS
       db.queue.splice(firstQueuedIndex, 0, item);
     }
 
-    db.reindexQueue();
+    await db.reindexQueue();
   });
 
   db.logAudit(
@@ -1261,7 +1313,7 @@ apiRouter.post('/controller/queue/remove', requireRole(['CONTROLLER', 'SUPERVISO
 
   await db.queueMutex.runExclusive(async () => {
     item.status = 'CANCELLED';
-    db.reindexQueue();
+    await db.reindexQueue();
     await db.persistQueueItem(item);
   });
 
@@ -1388,7 +1440,13 @@ apiRouter.post('/supervisor/takeover', requireRole(['SUPERVISOR']), async (req, 
   db.session.activeControllerId = 'supervisor-emergency';
   db.session.activeControllerName = `${req.user?.actorName || db.session.supervisorName} (Controle de Emergência)`;
 
-  // Old presence code is invalidated; new presence code generated immediately
+  // 1. Invalida tokens anteriores do controlador em memória e banco (Requisito 18)
+  await authService.revokeRoleTokens('CONTROLLER', db.session.establishmentId);
+
+  // 2. Desconecta sockets autenticados anteriormente como controlador
+  wsServer.disconnectClientsByRole('CONTROLLER', 'Controle assumido emergencialmente pelo Supervisor.');
+
+  // 3. Old presence code is invalidated; new presence code generated immediately
   const newCode = db.generateNewPresenceCode();
 
   db.logAudit(
@@ -1530,13 +1588,13 @@ apiRouter.post('/supervisor/users', requireRole(['SUPERVISOR']), async (req, res
     return res.status(400).json({ success: false, error: 'A senha deve possuir no mínimo 4 caracteres.' });
   }
 
-  const user = authService.createOperationalUser({ name, email, role, password });
+  const user = await authService.createOperationalUser({ name, email, role, password });
   res.json({ success: true, user, message: 'Usuário cadastrado com sucesso.' });
 });
 
 apiRouter.delete('/supervisor/users/:id', requireRole(['SUPERVISOR']), async (req, res) => {
   const { id } = req.params;
-  const ok = authService.deleteOperationalUser(id);
+  const ok = await authService.deleteOperationalUser(id);
   if (!ok) {
     return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
   }
@@ -1555,7 +1613,7 @@ apiRouter.post('/supervisor/change-password', requireRole(['SUPERVISOR']), async
     return res.status(400).json({ success: false, error: 'A nova senha deve possuir no mínimo 4 caracteres.' });
   }
 
-  authService.updateMasterPassword(targetRole, newPassword);
+  await authService.updateMasterPassword(targetRole, newPassword);
   res.json({
     success: true,
     message: `Senha de acesso para ${targetRole === 'SUPERVISOR' ? 'Supervisor/Administrador' : 'Controlador (Mesa de Som)'} atualizada com sucesso.`
@@ -1575,6 +1633,39 @@ apiRouter.post('/tv/heartbeat', (req, res) => {
   db.tvConnected = true;
   db.lastTvHeartbeat = Date.now();
   res.json({ success: true });
+});
+
+apiRouter.post('/tv/song-ended', async (req, res) => {
+  const currentItem = db.queue.find(q => q.status === 'PLAYING');
+  if (currentItem) {
+    currentItem.status = 'COMPLETED';
+    currentItem.completedAt = new Date().toISOString();
+    await db.persistQueueItem(currentItem);
+    db.logAudit(
+      'TV',
+      'TV Telão',
+      'SONG_ENDED',
+      `Música concluída na TV: ${currentItem.musicTitle}`
+    );
+  }
+
+  const nextItem = db.queue.find(q => q.status === 'QUEUED');
+  if (nextItem && db.session.status === 'ACTIVE') {
+    const call = await db.callNextParticipant('TV', 'TV Telão');
+    if (call) {
+      wsServer.broadcast('participant.turn_called', { callingState: call });
+    }
+  } else {
+    db.playbackState.currentQueueItemId = null;
+    db.playbackState.status = 'IDLE';
+    await db.persistPlaybackState();
+    if (currentItem) {
+      wsServer.broadcast('queue.completed', { item: currentItem });
+    }
+  }
+
+  wsServer.broadcastAuthoritativeState();
+  res.json({ success: true, playbackState: db.playbackState });
 });
 
 // ==========================================

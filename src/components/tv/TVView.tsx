@@ -242,7 +242,7 @@ export const TVView: React.FC<TVViewProps> = ({
         if (prev <= 1) {
           clearInterval(timer);
           // Advance song on server
-          fetch('/api/v1/controller/next', { method: 'POST' }).then(() => {
+          fetch('/api/v1/tv/song-ended', { method: 'POST' }).then(() => {
             fetchTVSession();
             setIsTransitioning(false);
             setCompletedPerformance(null);

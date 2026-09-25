@@ -7,6 +7,7 @@
  * Dominio: vozplay.ai.slz.br
  */
 
+import 'dotenv/config';
 import express from 'express';
 import http from 'http';
 import path from 'path';
@@ -14,18 +15,76 @@ import crypto from 'crypto';
 import { apiRouter } from './server/apiRouter.js';
 import { wsServer } from './server/wsServer.js';
 import { db } from './server/db.js';
+import { pgClient } from './server/pgClient.js';
 import { logger } from './server/logger.js';
-import { authMiddleware } from './server/auth.js';
+import { authMiddleware, authService } from './server/auth.js';
+
+// Validação mandatória de ambiente de produção (Requisito 4 e 19)
+function validateEnvironment() {
+  const isProd = process.env.NODE_ENV === 'production';
+  if (isProd) {
+    const missingVars: string[] = [];
+    if (!process.env.DATABASE_URL) missingVars.push('DATABASE_URL');
+    if (!process.env.SUPERVISOR_PASSWORD) missingVars.push('SUPERVISOR_PASSWORD');
+    if (!process.env.CONTROLLER_PASSWORD) missingVars.push('CONTROLLER_PASSWORD');
+
+    if (missingVars.length > 0) {
+      console.error('================================================================');
+      console.error('  [FALHA CRÍTICA DE STARTUP EM PRODUÇÃO]');
+      console.error(`  Variáveis obrigatórias ausentes: ${missingVars.join(', ')}`);
+      console.error('  Configure-as no arquivo .env ou nas variáveis do container.');
+      console.error('  O servidor não será iniciado com segredos indefinidos.');
+      console.error('================================================================');
+      process.exit(1);
+    }
+  }
+}
 
 async function startServer() {
+  validateEnvironment();
+
   const app = express();
   const PORT = 3000;
 
-  // Standard middleware
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  // Limite global rígido de payload para prevenir DoS (Requisito 20)
+  app.use(express.json({ limit: '100kb' }));
+  app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
-  // Correlation ID & Request logger for audit and observability
+  // Headers de Segurança HTTP (Requisito 21)
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
+  // Rate Limiting em memória para rotas sensíveis (Requisito 22)
+  const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+  app.use('/api/v1/auth/login', (req, res, next) => {
+    const ip = req.ip || 'unknown';
+    const now = Date.now();
+    const entry = loginAttempts.get(ip) || { count: 0, resetAt: now + 60000 };
+
+    if (now > entry.resetAt) {
+      entry.count = 0;
+      entry.resetAt = now + 60000;
+    }
+
+    entry.count++;
+    loginAttempts.set(ip, entry);
+
+    if (entry.count > 20) {
+      logger.security('Rate limit de tentativas de login excedido', { ip });
+      return res.status(429).json({
+        success: false,
+        error: 'Muitas tentativas de autenticação. Aguarde 1 minuto.',
+        code: 'TOO_MANY_REQUESTS'
+      });
+    }
+
+    next();
+  });
+
+  // Correlation ID & Request logger estruturado para auditoria e observabilidade (Requisito 16 e 29)
   app.use((req, res, next) => {
     const requestId = (req.headers['x-request-id'] as string) || ('req-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'));
     req.requestId = requestId;
@@ -42,21 +101,49 @@ async function startServer() {
     next();
   });
 
-  // Auth Middleware
+  // Auth Middleware (Autenticação exclusivamente via Bearer Token)
   app.use(authMiddleware);
 
   // Inicializa banco de dados e hidrata estado (PostgreSQL / In-Memory)
   await db.initDatabase();
+  await authService.initDefaultCredentials();
 
-  // Health check endpoint
-  app.get('/api/health', (req, res) => {
+  // Endpoint de Liveness (Requisito 28)
+  const livenessHandler = (req: express.Request, res: express.Response) => {
     res.json({
       status: 'ok',
       service: 'VozPlay Core Platform',
       domain: 'vozplay.ai.slz.br',
+      uptime: process.uptime(),
       timestamp: new Date().toISOString()
     });
-  });
+  };
+  app.get('/liveness', livenessHandler);
+  app.get('/api/liveness', livenessHandler);
+  app.get('/api/health', livenessHandler);
+
+  // Endpoint de Readiness (Requisito 28)
+  const readinessHandler = async (req: express.Request, res: express.Response) => {
+    const isProd = process.env.NODE_ENV === 'production';
+    const dbReady = pgClient.isConnected || (!isProd && !process.env.DATABASE_URL);
+
+    if (!dbReady && isProd) {
+      return res.status(503).json({
+        status: 'not_ready',
+        error: 'PostgreSQL indisponível em ambiente de produção',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      status: 'ready',
+      database: pgClient.isConnected ? 'postgresql_connected' : 'in_memory_ready',
+      sessionActive: db.session.status === 'ACTIVE',
+      timestamp: new Date().toISOString()
+    });
+  };
+  app.get('/readiness', readinessHandler);
+  app.get('/api/readiness', readinessHandler);
 
   // Mount versioned REST API
   app.use('/api/v1', apiRouter);

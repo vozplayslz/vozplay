@@ -394,8 +394,8 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                     <p className="text-xs text-slate-300 leading-relaxed">
                       - <strong>Troca de Senhas Mestras:</strong> Na aba <em>Usuários & Senhas</em>, você pode alterar a qualquer momento a senha do <strong>Supervisor/Admin</strong> e a senha do <strong>Controlador da Mesa de Som</strong>.<br />
                       - <strong>Cadastro de Operadores:</strong> Cadastre operadores específicos da equipe (com nome, e-mail, função e senha inicial) para rastreabilidade de acessos nos logs de auditoria.<br />
-                      - <strong>Senhas Padrão de Fábrica:</strong> Supervisor: <code className="text-amber-400 font-mono">vozplay@super2026</code> • Controlador: <code className="text-blue-400 font-mono">vozplay@ctrl704</code>.<br />
-                      - <strong>Persistência em Produção:</strong> Para fixar senhas via Docker, declare as variáveis <code className="text-purple-300 font-mono">SUPERVISOR_PASSWORD</code> e <code className="text-purple-300 font-mono">CONTROLLER_PASSWORD</code> no arquivo <code className="text-purple-300 font-mono">.env</code>.
+                      - <strong>Senhas Seguras:</strong> O sistema não utiliza senhas padrão em código. Defina suas senhas exclusivas via variáveis de ambiente <code className="text-purple-300 font-mono">SUPERVISOR_PASSWORD</code> e <code className="text-purple-300 font-mono">CONTROLLER_PASSWORD</code> no arquivo <code className="text-purple-300 font-mono">.env</code>.<br />
+                      - <strong>Persistência em Produção:</strong> Credenciais são hasheadas com Argon2id e vinculadas a sessões criptográficas com Bearer Token.
                     </p>
                   </div>
                 </div>
@@ -552,12 +552,12 @@ http://localhost:3000`}
                         </tr>
                         <tr>
                           <td className="py-2 text-purple-300 font-bold">SUPERVISOR_PASSWORD</td>
-                          <td className="py-2">vozplay@super2026</td>
+                          <td className="py-2 text-slate-400 italic">(definido no .env)</td>
                           <td className="py-2 font-sans">Senha mestra do Supervisor / Painel Admin</td>
                         </tr>
                         <tr>
                           <td className="py-2 text-purple-300 font-bold">CONTROLLER_PASSWORD</td>
-                          <td className="py-2">vozplay@ctrl704</td>
+                          <td className="py-2 text-slate-400 italic">(definido no .env)</td>
                           <td className="py-2 font-sans">Senha mestra da Mesa de Som / Operador</td>
                         </tr>
                       </tbody>
