@@ -27,6 +27,7 @@ export type ControllerSectionFilter =
   | 'PRESENCE'
   | 'PLAYER'
   | 'QUEUE'
+  | 'MAIA'
   | 'SOUNDBOARD'
   | 'ADD_MANUAL'
   | 'HISTORY';
@@ -85,6 +86,14 @@ export const ControllerSidebar: React.FC<ControllerSidebarProps> = ({
       icon: ListMusic,
       badge: queueLength > 0 ? String(queueLength) : '0',
       badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+    },
+    {
+      id: 'MAIA' as ControllerSectionFilter,
+      label: 'Assistente MaIA',
+      description: 'Avisos no telão, voz & chat operacional',
+      icon: Sparkles,
+      badge: 'Voz IA',
+      badgeColor: 'bg-pink-500/20 text-pink-300 border-pink-500/30'
     },
     {
       id: 'SOUNDBOARD' as ControllerSectionFilter,

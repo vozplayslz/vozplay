@@ -58,7 +58,15 @@ export default function App() {
   const [tvConnected, setTvConnected] = useState(false);
   const [lastReaction, setLastReaction] = useState<any>(null);
   const [lastSoundboard, setLastSoundboard] = useState<any>(null);
-  const [lastQueueEvent, setLastQueueEvent] = useState<{ event: WSEventType; item?: any; tv?: any; _t: number } | null>(null);
+  const [lastQueueEvent, setLastQueueEvent] = useState<{
+    event: WSEventType;
+    item?: any;
+    tv?: any;
+    callingState?: any;
+    maiaAnnouncement?: any;
+    message?: string;
+    _t: number;
+  } | null>(null);
 
   // Navigation sidebar & header state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -136,9 +144,20 @@ export default function App() {
         event === 'participant.turn_started' ||
         event === 'participant.turn_missed' ||
         event === 'participant.turn_missed_again' ||
-        event === 'queue.item_requeued'
+        event === 'queue.item_requeued' ||
+        event === 'maia.voice.started' ||
+        event === 'maia.voice.completed' ||
+        event === 'maia.voice.failed'
       ) {
-        setLastQueueEvent({ event, item: payload?.item, tv: payload?.tv, _t: Date.now() });
+        setLastQueueEvent({
+          event,
+          item: payload?.item,
+          tv: payload?.tv,
+          callingState: payload?.callingState || (event === 'participant.turn_called' ? payload : undefined),
+          maiaAnnouncement: payload?.maiaAnnouncement || (payload?.audioBase64 || payload?.speechText ? payload : undefined),
+          message: payload?.message,
+          _t: Date.now()
+        });
       }
       if (event === 'reaction.sent') {
         setLastReaction({ ...payload, _t: Date.now() });

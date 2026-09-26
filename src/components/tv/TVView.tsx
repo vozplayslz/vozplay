@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Tv, Music2, Radio, AlertTriangle, QrCode, Sparkles, CheckCircle2, Mic2, Flame, Users, Megaphone, Timer } from 'lucide-react';
+import { Tv, Music2, Radio, AlertTriangle, QrCode, Sparkles, CheckCircle2, Mic2, Flame, Users, Megaphone, Timer, Volume2, VolumeX, Bot } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TVSessionDTO } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
@@ -21,7 +21,27 @@ interface TVViewProps {
   onNotifyPlayerState?: (state: string, error?: string) => void;
   lastReaction?: { participantName: string; emoji: string; label: string; timestamp?: string; _t?: number } | null;
   lastSoundboard?: { soundType: string; label: string; timestamp?: string; _t?: number } | null;
-  lastQueueEvent?: { event: string; item?: any; tv?: TVSessionDTO; _t?: number } | null;
+  lastQueueEvent?: {
+    event: string;
+    item?: any;
+    tv?: TVSessionDTO;
+    callingState?: any;
+    maiaAnnouncement?: any;
+    message?: string;
+    _t?: number;
+  } | null;
+}
+
+interface MaiaActiveNotice {
+  id: string;
+  badge: string;
+  singer?: string;
+  song?: string;
+  speechText: string;
+  visualText: string;
+  callType: 'CALL' | 'FIRST_ABSENCE' | 'SECOND_ABSENCE' | 'ANNOUNCEMENT';
+  audioBase64?: string | null;
+  mimeType?: string;
 }
 
 interface FloatingReaction {
@@ -61,6 +81,9 @@ export const TVView: React.FC<TVViewProps> = ({
   const [tvQrUrl, setTvQrUrl] = useState<string>('');
   const [queueHighlightNotice, setQueueHighlightNotice] = useState<QueueHighlightNotice | null>(null);
   const [isNextSongHighlighted, setIsNextSongHighlighted] = useState(false);
+  const [activeMaiaNotice, setActiveMaiaNotice] = useState<MaiaActiveNotice | null>(null);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const maiaNoticeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const prevNextSongIdRef = useRef<string | null>(null);
   const prevQueueLengthRef = useRef<number>(0);
@@ -348,10 +371,134 @@ export const TVView: React.FC<TVViewProps> = ({
     return null;
   };
 
-  // Real-time listener for WebSocket queue updates
+  const playMaiaAudio = (audioBase64?: string | null, mimeType = 'audio/wav', speechText?: string) => {
+    if (audioBase64) {
+      try {
+        const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
+        audio.volume = 1.0;
+        audio.play().then(() => {
+          setAudioUnlocked(true);
+        }).catch((err) => {
+          console.warn('[TV] Autoplay de áudio MaIA bloqueado pelo navegador:', err);
+        });
+        return;
+      } catch (e) {
+        console.warn('[TV] Erro ao instanciar áudio:', e);
+      }
+    }
+
+    if (speechText && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(speechText);
+        utter.lang = 'pt-BR';
+        utter.rate = 1.0;
+        utter.pitch = 1.05;
+        window.speechSynthesis.speak(utter);
+      } catch (e) {
+        // silent
+      }
+    }
+  };
+
+  // Real-time listener for WebSocket queue updates and MaIA Voice announcements
   useEffect(() => {
     if (!lastQueueEvent) return;
 
+    // 1. Processa anúncios de voz nativos da MaIA
+    const announcement = lastQueueEvent.maiaAnnouncement;
+    const eventType = lastQueueEvent.event;
+
+    if (eventType === 'participant.turn_called' || announcement?.callType === 'INITIAL' || announcement?.callType === 'CALL') {
+      const singer = announcement?.participantDisplayName || lastQueueEvent.callingState?.participantDisplayName || lastQueueEvent.item?.participantDisplayName || 'Próximo Cantor';
+      const isDuet = announcement?.isDuet || lastQueueEvent.callingState?.isDuet;
+      const partner = announcement?.partnerDisplayName || lastQueueEvent.callingState?.partnerDisplayName;
+      const songTitle = announcement?.musicTitle || lastQueueEvent.callingState?.musicTitle || lastQueueEvent.item?.musicTitle;
+      const songArtist = announcement?.musicArtist || lastQueueEvent.callingState?.musicArtist || lastQueueEvent.item?.musicArtist;
+      const songFull = songTitle && songArtist ? `${songTitle} • ${songArtist}` : songTitle || '';
+      const speech = announcement?.speechText || (isDuet && partner
+        ? `${singer} e ${partner}, chegou a sua vez! Preparem-se para cantar ${songTitle || 'no palco'}.`
+        : `${singer}, chegou a sua vez! Prepare-se para cantar ${songTitle || 'no palco'}.`);
+
+      if (maiaNoticeTimerRef.current) clearTimeout(maiaNoticeTimerRef.current);
+      setActiveMaiaNotice({
+        id: `maia-call-${Date.now()}`,
+        badge: isDuet ? 'MAIA • DUETO CONVOCADO' : 'MAIA • CONVOCAÇÃO VOCAL',
+        singer: isDuet && partner ? `${singer} & ${partner}` : singer,
+        song: songFull,
+        speechText: speech,
+        visualText: announcement?.visualText || 'SUA VEZ NO PALCO!',
+        callType: 'CALL',
+        audioBase64: announcement?.audioBase64,
+        mimeType: announcement?.mimeType || 'audio/wav'
+      });
+
+      playMaiaAudio(announcement?.audioBase64, announcement?.mimeType, speech);
+      maiaNoticeTimerRef.current = setTimeout(() => {
+        setActiveMaiaNotice(null);
+      }, 7500);
+    } else if (eventType === 'participant.turn_missed' || announcement?.callType === 'FIRST_ABSENCE') {
+      const singer = announcement?.participantDisplayName || lastQueueEvent.item?.participantDisplayName || 'Cantor';
+      const speech = announcement?.speechText || `${singer}, estamos esperando você no palco. Prepare-se para começar!`;
+
+      if (maiaNoticeTimerRef.current) clearTimeout(maiaNoticeTimerRef.current);
+      setActiveMaiaNotice({
+        id: `maia-missed-1-${Date.now()}`,
+        badge: 'MAIA • 1ª AUSÊNCIA (30s RESTANTES)',
+        singer,
+        speechText: speech,
+        visualText: 'AGUARDANDO CANTOR NA MESA',
+        callType: 'FIRST_ABSENCE',
+        audioBase64: announcement?.audioBase64,
+        mimeType: announcement?.mimeType || 'audio/wav'
+      });
+
+      playMaiaAudio(announcement?.audioBase64, announcement?.mimeType, speech);
+      maiaNoticeTimerRef.current = setTimeout(() => {
+        setActiveMaiaNotice(null);
+      }, 7500);
+    } else if (eventType === 'participant.turn_missed_again' || announcement?.callType === 'SECOND_ABSENCE') {
+      const singer = announcement?.participantDisplayName || lastQueueEvent.item?.participantDisplayName || 'Cantor';
+      const speech = announcement?.speechText || `${singer} não compareceu à mesa. Vamos chamar o próximo cantor da fila!`;
+
+      if (maiaNoticeTimerRef.current) clearTimeout(maiaNoticeTimerRef.current);
+      setActiveMaiaNotice({
+        id: `maia-missed-2-${Date.now()}`,
+        badge: 'MAIA • MÚSICA REENFILEIRADA',
+        singer,
+        speechText: speech,
+        visualText: 'CONVOCANDO PRÓXIMO DA FILA',
+        callType: 'SECOND_ABSENCE',
+        audioBase64: announcement?.audioBase64,
+        mimeType: announcement?.mimeType || 'audio/wav'
+      });
+
+      playMaiaAudio(announcement?.audioBase64, announcement?.mimeType, speech);
+      maiaNoticeTimerRef.current = setTimeout(() => {
+        setActiveMaiaNotice(null);
+      }, 7500);
+    } else if (eventType === 'maia.voice.started' || (announcement && announcement.speechText)) {
+      const speech = announcement?.speechText || lastQueueEvent.message || '';
+      if (speech) {
+        if (maiaNoticeTimerRef.current) clearTimeout(maiaNoticeTimerRef.current);
+        setActiveMaiaNotice({
+          id: `maia-shout-${Date.now()}`,
+          badge: 'MAIA • AVISO DA MESA DE SOM',
+          speechText: speech,
+          visualText: announcement?.visualText || 'COMUNICADO AO VIVO',
+          callType: 'ANNOUNCEMENT',
+          audioBase64: announcement?.audioBase64,
+          mimeType: announcement?.mimeType || 'audio/wav'
+        });
+
+        playMaiaAudio(announcement?.audioBase64, announcement?.mimeType, speech);
+        maiaNoticeTimerRef.current = setTimeout(() => {
+          setActiveMaiaNotice(null);
+        }, 7500);
+      }
+    }
+
+    // 2. Sincronização geral de dados sanitizados da TV
     if (lastQueueEvent.tv) {
       setTvData(lastQueueEvent.tv);
       checkAndTriggerHighlight(lastQueueEvent.tv);
@@ -942,6 +1089,94 @@ export const TVView: React.FC<TVViewProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* NATIVE MAIA VOICE ANNOUNCEMENT CARD ON TV (Seção 8, 9, 10, 12) */}
+      <AnimatePresence>
+        {activeMaiaNotice && (
+          <motion.div
+            key={activeMaiaNotice.id}
+            initial={{ opacity: 0, y: -60, scale: 0.9, filter: 'blur(12px)' }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -40, scale: 0.95, filter: 'blur(8px)' }}
+            transition={{ type: 'spring', damping: 18, stiffness: 220 }}
+            className="fixed top-12 left-1/2 -translate-x-1/2 z-[70] max-w-2xl w-[94%] sm:w-auto pointer-events-none"
+          >
+            <div className="relative overflow-hidden rounded-3xl bg-[#080c1a]/95 border-2 border-purple-500/50 p-6 sm:p-7 shadow-[0_25px_70px_rgba(147,51,234,0.4)] backdrop-blur-2xl ring-2 ring-white/10 text-white">
+              {/* Dynamic ambient background glow */}
+              <div className="absolute -top-16 -right-16 w-52 h-52 bg-purple-600/30 rounded-full blur-3xl pointer-events-none animate-pulse" />
+              <div className="absolute -bottom-16 -left-16 w-52 h-52 bg-pink-500/25 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="relative z-10 flex items-start gap-5">
+                {/* MaIA Animated Avatar & Waveforms */}
+                <div className="relative shrink-0">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-tr from-purple-600 via-pink-500 to-indigo-600 flex items-center justify-center text-white shadow-xl shadow-purple-500/40 ring-4 ring-purple-400/20">
+                    <Sparkles className="w-9 h-9 sm:w-11 sm:h-11 animate-pulse" />
+                  </div>
+                  {/* Waveform indicator */}
+                  <div className="absolute -bottom-2 inset-x-0 flex items-center justify-center gap-1 bg-black/80 px-2 py-0.5 rounded-full border border-purple-400/40">
+                    <span className="w-1 h-3 bg-purple-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <span className="w-1 h-4 bg-pink-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <span className="w-1 h-2.5 bg-cyan-400 rounded-full animate-bounce" />
+                    <span className="w-1 h-3.5 bg-purple-300 rounded-full animate-bounce [animation-delay:-0.2s]" />
+                  </div>
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/20 border border-purple-500/40 text-purple-200 text-xs font-black uppercase tracking-wider shadow-sm">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-300" />
+                      <span>{activeMaiaNotice.badge}</span>
+                    </span>
+                    <span className="text-xs font-mono text-purple-300/80 bg-purple-950/40 px-2.5 py-0.5 rounded-md border border-purple-500/20">
+                      Voz Feminina Nativa (pt-BR)
+                    </span>
+                  </div>
+
+                  {activeMaiaNotice.singer && (
+                    <h3 className="text-2xl sm:text-3xl font-display font-black text-white tracking-tight leading-tight">
+                      {activeMaiaNotice.singer}
+                    </h3>
+                  )}
+
+                  {activeMaiaNotice.song && (
+                    <p className="text-sm sm:text-base text-purple-200 font-semibold mt-0.5 truncate">
+                      {activeMaiaNotice.song}
+                    </p>
+                  )}
+
+                  <p className="text-sm sm:text-base text-slate-200 mt-2 font-medium leading-snug bg-white/[0.04] p-3 rounded-xl border border-white/10">
+                    "{activeMaiaNotice.speechText}"
+                  </p>
+                </div>
+              </div>
+
+              {/* Progress timer bar */}
+              <motion.div
+                initial={{ width: '100%' }}
+                animate={{ width: '0%' }}
+                transition={{ duration: 7.5, ease: 'linear' }}
+                className="absolute bottom-0 left-0 h-1.5 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Audio Unlock Button for Browsers with strict autoplay */}
+      {!audioUnlocked && (
+        <button
+          onClick={() => {
+            setAudioUnlocked(true);
+            const silent = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAP8A');
+            silent.play().catch(() => {});
+          }}
+          className="fixed bottom-4 left-4 z-50 px-3 py-1.5 rounded-full bg-purple-950/80 hover:bg-purple-900 text-purple-200 border border-purple-500/30 text-xs font-semibold flex items-center gap-1.5 backdrop-blur-md transition shadow-lg pointer-events-auto"
+          title="Clique para habilitar áudio automático das chamadas vocais"
+        >
+          <Volume2 className="w-3.5 h-3.5 text-purple-300" />
+          <span>Habilitar Áudio da MaIA</span>
+        </button>
+      )}
 
       {/* PRD Section 48: Live Audience Floating Reactions on TV */}
       <div className="fixed inset-x-0 bottom-24 pointer-events-none z-40 overflow-hidden h-96">

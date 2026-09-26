@@ -31,7 +31,8 @@ import {
   History,
   Clock,
   Users,
-  Megaphone
+  Megaphone,
+  Sparkles
 } from 'lucide-react';
 import { QueueItem, PresenceCode, Session, PlaybackStatus, CallingParticipantState } from '../../types.js';
 import { playDJAudioEffect } from '../../utils/synthAudio.js';
@@ -75,6 +76,74 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
   // Error reporting modal
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorReason, setErrorReason] = useState('Vídeo do YouTube indisponível ou bloqueado');
+
+  // MaIA Controller Assistant State
+  const [maiaCustomText, setMaiaCustomText] = useState('');
+  const [isMaiaSpeaking, setIsMaiaSpeaking] = useState(false);
+  const [maiaChatInput, setMaiaChatInput] = useState('');
+  const [maiaChatMessages, setMaiaChatMessages] = useState<Array<{ role: 'operator' | 'maia'; text: string; time: string }>>([
+    {
+      role: 'maia',
+      text: 'Olá, operador! Sou a MaIA, sua assistente vocal. Posso fazer comunicados falados no telão com voz brasileira ou responder dúvidas sobre a fila e operação.',
+      time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    }
+  ]);
+  const [isMaiaChatLoading, setIsMaiaChatLoading] = useState(false);
+
+  const handleMaiaSpeak = async (textToSpeak: string) => {
+    if (!textToSpeak.trim()) return;
+    try {
+      setIsMaiaSpeaking(true);
+      const res = await fetch('/api/v1/maia/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textToSpeak, sendToTv: true })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showFeedback('Aviso vocal da MaIA transmitido para o telão com sucesso!', 'success');
+        setMaiaCustomText('');
+      } else {
+        showFeedback(data.error || 'Falha ao transmitir áudio da MaIA.', 'error');
+      }
+    } catch {
+      showFeedback('Erro de conexão ao comunicar com a MaIA.', 'error');
+    } finally {
+      setIsMaiaSpeaking(false);
+    }
+  };
+
+  const handleMaiaChatSend = async (questionText?: string) => {
+    const text = (questionText || maiaChatInput).trim();
+    if (!text) return;
+    setMaiaChatInput('');
+    const nowTime = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    setMaiaChatMessages(prev => [...prev, { role: 'operator', text, time: nowTime }]);
+    setIsMaiaChatLoading(true);
+
+    try {
+      const res = await fetch('/api/v1/maia/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      });
+      const data = await res.json();
+      const replyText = data.success && data.data?.text ? data.data.text : 'Desculpe, operador. Tive uma oscilação na resposta da IA.';
+      setMaiaChatMessages(prev => [...prev, {
+        role: 'maia',
+        text: replyText,
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      }]);
+    } catch {
+      setMaiaChatMessages(prev => [...prev, {
+        role: 'maia',
+        text: 'Erro de comunicação temporário com a MaIA.',
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      }]);
+    } finally {
+      setIsMaiaChatLoading(false);
+    }
+  };
 
   useEffect(() => {
     fetchPresenceCode();
@@ -830,6 +899,176 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
           tvConnected={tvConnected}
           onFeedback={showFeedback}
         />
+      )}
+
+      {/* MAIA NATIVE AI - OPERATOR ASSISTANT & VOCAL SHOUTOUT PANEL */}
+      {(currentFilter === 'ALL' || currentFilter === 'MAIA') && (
+        <div className="rounded-3xl bg-gradient-to-br from-[#0c0f1d] via-[#101428] to-[#0c0f1d] border border-purple-500/20 p-5 sm:p-6 shadow-2xl space-y-6 backdrop-blur-xl">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/[0.08]">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 to-pink-500 flex items-center justify-center text-white shadow-lg shadow-purple-600/30">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-white">Assistente MaIA — Copilot & Voz no Telão</h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                    Voz Feminina Ativa
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Transmita avisos falados para o telão e consulte status operacional da fila em linguagem natural.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-mono text-purple-300 bg-purple-950/40 px-3 py-1.5 rounded-xl border border-purple-500/30">
+              <Radio className="w-3.5 h-3.5 animate-pulse text-purple-400" />
+              <span>Telão: {tvConnected ? 'Sincronizado' : 'Aguardando TV'}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Bloco 1: Comunicados de Voz para a TV */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-[#080b16] border border-white/[0.06] space-y-4 flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-wider text-purple-300 flex items-center gap-2">
+                    <Volume2 className="w-4 h-4 text-purple-400" /> Comunicados Rápidos no Telão
+                  </span>
+                  <span className="text-[10px] text-slate-500">Síntese vocal ao vivo</span>
+                </div>
+
+                {/* Preset Chips */}
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'Últimas 3 músicas da rodada!',
+                    'Pausa técnica de 5 minutos.',
+                    'Palco liberado! Próximos cantores, atenção!',
+                    'Show de carisma da plateia! Parabéns!'
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleMaiaSpeak(preset)}
+                      disabled={isMaiaSpeaking}
+                      className="px-3 py-1.5 rounded-xl bg-purple-950/30 hover:bg-purple-900/50 border border-purple-500/30 text-purple-200 text-xs font-medium transition active:scale-95 disabled:opacity-50 text-left"
+                    >
+                      🗣️ {preset}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Custom speech input */}
+                <div className="pt-2">
+                  <label className="text-[11px] text-slate-400 block mb-1.5 font-medium">
+                    Aviso Personalizado (MaIA falará no telão):
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={maiaCustomText}
+                      onChange={(e) => setMaiaCustomText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleMaiaSpeak(maiaCustomText);
+                      }}
+                      placeholder="Ex: Aniversário da Juliana na mesa 4!"
+                      className="flex-1 px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                    />
+                    <button
+                      onClick={() => handleMaiaSpeak(maiaCustomText)}
+                      disabled={isMaiaSpeaking || !maiaCustomText.trim()}
+                      className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-purple-600/30 disabled:opacity-50"
+                    >
+                      {isMaiaSpeaking ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Radio className="w-4 h-4" />
+                      )}
+                      <span>Falar</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bloco 2: Copilot Operacional (Chat Inteligente) */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-[#080b16] border border-white/[0.06] space-y-3 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-pink-300 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-pink-400" /> Copilot do Operador
+                </span>
+                <span className="text-[10px] text-slate-500">Respostas autoritativas</span>
+              </div>
+
+              {/* Chat Message Box */}
+              <div className="h-44 overflow-y-auto space-y-2.5 p-3 rounded-xl bg-black/40 border border-white/[0.06] text-xs">
+                {maiaChatMessages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex flex-col ${msg.role === 'operator' ? 'items-end' : 'items-start'}`}
+                  >
+                    <div
+                      className={`max-w-[85%] p-2.5 rounded-2xl leading-relaxed ${
+                        msg.role === 'operator'
+                          ? 'bg-purple-600 text-white rounded-br-none'
+                          : 'bg-slate-800 text-slate-200 rounded-bl-none border border-white/5'
+                      }`}
+                    >
+                      <p>{msg.text}</p>
+                    </div>
+                    <span className="text-[9px] text-slate-500 mt-0.5 px-1">{msg.time}</span>
+                  </div>
+                ))}
+                {isMaiaChatLoading && (
+                  <div className="flex items-center gap-2 text-slate-400 text-xs italic">
+                    <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-spin" />
+                    <span>MaIA consultando sistema...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick suggestions & input */}
+              <div className="space-y-2">
+                <div className="flex gap-1.5 flex-wrap">
+                  {[
+                    'Quem é o próximo cantor?',
+                    'Quantas músicas faltam?',
+                    'Qual o tempo de espera?'
+                  ].map((q, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleMaiaChatSend(q)}
+                      disabled={isMaiaChatLoading}
+                      className="px-2 py-1 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 text-[10px] transition"
+                    >
+                      💡 {q}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={maiaChatInput}
+                    onChange={(e) => setMaiaChatInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleMaiaChatSend();
+                    }}
+                    placeholder="Pergunte à MaIA sobre a fila ou operação..."
+                    className="flex-1 px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
+                  />
+                  <button
+                    onClick={() => handleMaiaChatSend()}
+                    disabled={isMaiaChatLoading || !maiaChatInput.trim()}
+                    className="px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-pink-600/30 disabled:opacity-50"
+                  >
+                    <span>Enviar</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* QUEUE MONITOR FOR CONTROLLER */}

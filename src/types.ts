@@ -360,7 +360,10 @@ export type WSEventType =
   | 'reaction.sent'
   | 'soundboard.play'
   | 'branding.updated'
-  | 'state.sync';
+  | 'state.sync'
+  | 'maia.voice.started'
+  | 'maia.voice.completed'
+  | 'maia.voice.failed';
 
 export interface WSMessage<T = unknown> {
   event: WSEventType;
@@ -393,3 +396,82 @@ export interface RecommendedPlaylist {
   source: 'gemini' | 'catalog_fallback';
   generatedAt?: string;
 }
+
+// ==========================================
+// MAIA NATIVE AI - TYPES & CONFIGURATION
+// ==========================================
+export type MaIACostTier = 'ECONOMICO' | 'BALANCEADO' | 'ALTA_CAPACIDADE' | 'VOZ' | 'PERSONALIZADO';
+
+export interface MaIAModelMapping {
+  CHAT: string;
+  LIVE_VOICE: string;
+  REASONING: string;
+  TTS: string;
+  TRANSCRIPTION: string;
+  MUSIC_ASSISTANCE: string;
+}
+
+export interface VoiceConfig {
+  voice_provider: string;
+  voice_id: string;
+  language: string;
+  persona: string;
+  speed: number;
+  style: string;
+  fallback_voice: string;
+}
+
+export interface MaIAConfig {
+  establishment_id: string;
+  enabled: boolean;
+  active_provider: 'gemini' | '9router' | 'custom_gateway';
+  gateway_url?: string;
+  cost_tier: MaIACostTier;
+  models: MaIAModelMapping;
+  voice: VoiceConfig;
+  limits: {
+    daily_limit_usd: number;
+    monthly_limit_usd: number;
+    max_live_session_duration_minutes: number;
+    max_tts_requests_per_day: number;
+    max_requests_per_minute: number;
+  };
+  announce_queue_calls: boolean;
+  announce_absences: boolean;
+  announce_duets: boolean;
+  tv_audio_enabled: boolean;
+}
+
+export interface MaIAUsageMetrics {
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  fallbackCalls: number;
+  totalLatencyMs: number;
+  averageLatencyMs: number;
+  ttsCalls: number;
+  ttsLatencyMs: number;
+  liveSessionsCount: number;
+  estimatedCostUsd: number;
+  tokensInput: number;
+  tokensOutput: number;
+  lastUsedAt: string;
+  byModel: Record<string, number>;
+  byTask: Record<string, number>;
+}
+
+export interface QueueCallVoicePayload {
+  queueItemId: string;
+  participantDisplayName: string;
+  partnerDisplayName?: string;
+  isDuet?: boolean;
+  musicTitle: string;
+  musicArtist: string;
+  speechText: string;
+  visualText: string;
+  audioBase64: string | null;
+  mimeType: string;
+  callType: 'INITIAL' | 'FIRST_ABSENCE' | 'SECOND_ABSENCE';
+  timestamp: string;
+}
+

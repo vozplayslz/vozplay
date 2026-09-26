@@ -21,12 +21,14 @@ import {
   X,
   Menu,
   ChevronRight,
-  Palette
+  Palette,
+  Sparkles
 } from 'lucide-react';
 import { Session } from '../../types.js';
 
 export type SupervisorSectionId =
   | 'OVERVIEW'
+  | 'MAIA'
   | 'BRANDING'
   | 'USERS'
   | 'ANALYTICS'
@@ -52,6 +54,7 @@ export interface SupervisorMenuSection {
 
 export const SUPERVISOR_ITEMS_MAP: Record<SupervisorSectionId, { label: string; description: string; icon: React.ComponentType<{ className?: string }> }> = {
   OVERVIEW: { label: 'Sessão & Horários', description: 'Timer, prorrogações e status', icon: Clock },
+  MAIA: { label: 'Inteligência Vocal MaIA', description: 'Modelos, voz, custos & chamada', icon: Sparkles },
   BRANDING: { label: 'Identidade Visual', description: 'Logo, cores, slogan & preview', icon: Palette },
   USERS: { label: 'Usuários & Senhas', description: 'Credenciais de Admin e Mesa', icon: Shield },
   CONTROLLER: { label: 'Controladores', description: 'Operadores de som & presença', icon: Users },
@@ -121,6 +124,18 @@ export const SupervisorSidebar: React.FC<SupervisorSidebarProps> = ({
           description: 'Acesso instantâneo dos clientes',
           icon: QrCode,
           badge: null
+        }
+      ]
+    },
+    {
+      group: 'INTELIGÊNCIA ARTIFICIAL',
+      items: [
+        {
+          id: 'MAIA',
+          label: 'Inteligência Vocal MaIA',
+          description: 'Modelos, voz, custos & chamada',
+          icon: Sparkles,
+          badge: 'Nativa'
         }
       ]
     },

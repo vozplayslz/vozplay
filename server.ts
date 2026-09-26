@@ -21,18 +21,37 @@ import { authMiddleware, authService } from './server/auth.js';
 
 // Validação e inicialização resiliente do ambiente de execução (Cloud Run / Local)
 function validateEnvironment() {
+  const isProd = process.env.NODE_ENV === 'production';
+  const isCloudRun = Boolean(process.env.K_SERVICE);
+
   if (!process.env.DATABASE_URL) {
     logger.info('[VozPlay Runtime] DATABASE_URL não definida no ambiente. Operando com armazenamento in-memory sincronizado de alta resiliência.');
   }
 
-  if (!process.env.SUPERVISOR_PASSWORD) {
-    process.env.SUPERVISOR_PASSWORD = 'VozPlay@SuperAdmin2026!SLZ';
-    logger.info('[VozPlay Runtime] SUPERVISOR_PASSWORD não configurada no ambiente. Utilizando credencial padrão segura de contingência.');
-  }
+  // Em produção estrita (fora de Cloud Run preview), abortar se faltarem credenciais obrigatórias
+  if (isProd && !isCloudRun) {
+    const missing: string[] = [];
+    if (!process.env.SUPERVISOR_PASSWORD) missing.push('SUPERVISOR_PASSWORD');
+    if (!process.env.CONTROLLER_PASSWORD) missing.push('CONTROLLER_PASSWORD');
 
-  if (!process.env.CONTROLLER_PASSWORD) {
-    process.env.CONTROLLER_PASSWORD = 'VozPlay@SoundDesk704!SLZ';
-    logger.info('[VozPlay Runtime] CONTROLLER_PASSWORD não configurada no ambiente. Utilizando credencial padrão segura de contingência.');
+    if (missing.length > 0) {
+      console.error('================================================================');
+      console.error('  [FALHA DE STARTUP EM PRODUÇÃO]');
+      console.error(`  Variáveis obrigatórias ausentes: ${missing.join(', ')}`);
+      console.error('  Configure-as no arquivo .env ou no orquestrador do container.');
+      console.error('================================================================');
+      process.exit(1);
+    }
+  } else if (!process.env.SUPERVISOR_PASSWORD || !process.env.CONTROLLER_PASSWORD) {
+    // Ambiente efêmero / desenvolvimento: gera credencial efêmera segura sem expor senhas hardcoded
+    if (!process.env.SUPERVISOR_PASSWORD) {
+      process.env.SUPERVISOR_PASSWORD = crypto.randomBytes(16).toString('hex');
+      logger.warn('[VozPlay Security] SUPERVISOR_PASSWORD não definida. Gerada credencial criptográfica efêmera para a sessão.');
+    }
+    if (!process.env.CONTROLLER_PASSWORD) {
+      process.env.CONTROLLER_PASSWORD = crypto.randomBytes(16).toString('hex');
+      logger.warn('[VozPlay Security] CONTROLLER_PASSWORD não definida. Gerada credencial criptográfica efêmera para a sessão.');
+    }
   }
 }
 

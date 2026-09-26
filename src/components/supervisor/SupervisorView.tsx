@@ -42,6 +42,7 @@ import { apiFetch as fetch } from '../../utils/apiClient.js';
 import { SupervisorSidebar, SUPERVISOR_ITEMS_MAP, SupervisorSectionId } from './SupervisorSidebar.js';
 import { SupervisorBrandingSection } from './SupervisorBrandingSection.js';
 import { SupervisorUsersSection } from './SupervisorUsersSection.js';
+import { SupervisorMaIASection } from './SupervisorMaIASection.js';
 
 interface DeviceItem {
   deviceId: string;
@@ -629,6 +630,11 @@ export const SupervisorView: React.FC<SupervisorViewProps> = ({ session, tvConne
             </p>
           </div>
         </div>
+      )}
+
+      {/* TAB: INTELIGÊNCIA VOCAL MAIA */}
+      {activeTab === 'MAIA' && (
+        <SupervisorMaIASection establishmentId={session?.establishmentId || 'est-slz-lounge'} />
       )}
 
       {/* TAB: BRANDING & WHITE-LABEL (Identidade Visual por Estabelecimento) */}

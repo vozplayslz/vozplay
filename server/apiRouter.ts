@@ -15,6 +15,7 @@ import { generateRecommendedPlaylist } from './geminiService.js';
 import { sanitizeSvgContent } from './brandingUtils.js';
 import { authService, requireRole, enforceTenantIsolation } from './auth.js';
 import { logger } from './logger.js';
+import { maiaService, maiaQueueCaller, maiaConfigManager, maiaVoiceService } from './maia/index.js';
 
 export const apiRouter = Router();
 
@@ -988,6 +989,11 @@ apiRouter.post('/controller/call-next', requireRole(['CONTROLLER', 'SUPERVISOR']
       });
     }
 
+    // Transmite anúncio vocal humanizado da MaIA para TV e sistema
+    maiaQueueCaller.handleParticipantCalled(db.session.establishmentId, call).catch(e => {
+      logger.warn('[MaIA] Falha assíncrona ao processar anúncio vocal da MaIA:', e);
+    });
+
     wsServer.broadcast('participant.turn_called', { callingState: call });
     wsServer.broadcastAuthoritativeState();
     res.json({ success: true, callingState: call });
@@ -1897,4 +1903,161 @@ apiRouter.post('/establishment/branding/reset', requireRole(['SUPERVISOR']), (re
     message: 'Identidade visual do estabelecimento restaurada para os padrões oficiais do VozPlay.'
   });
 });
+
+// ==========================================
+// 15. MAIA NATIVE AI (/api/v1/maia/*)
+// ==========================================
+
+// GET /api/v1/maia/config - Consulta configurações ativas da MaIA para o estabelecimento
+apiRouter.get('/maia/config', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
+  const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+  const config = maiaConfigManager.getConfig(establishmentId);
+  const metrics = maiaConfigManager.getMetrics(establishmentId);
+
+  res.json({
+    success: true,
+    data: {
+      config,
+      metrics,
+      availableTools: maiaService.getAvailableTools()
+    }
+  });
+});
+
+// PUT /api/v1/maia/config - Atualiza configurações da MaIA (Apenas Supervisor)
+apiRouter.put('/maia/config', requireRole(['SUPERVISOR']), (req, res) => {
+  const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+  const updates = req.body;
+
+  const updatedConfig = maiaConfigManager.updateConfig(establishmentId, updates);
+  db.logAudit(
+    'SUPERVISOR',
+    req.user?.actorName || 'Supervisor',
+    'MAIA_CONFIG_UPDATE',
+    `Configurações da MaIA atualizadas (Perfil de Custo: ${updatedConfig.cost_tier})`
+  );
+
+  res.json({
+    success: true,
+    data: updatedConfig,
+    message: 'Configurações da MaIA atualizadas com sucesso.'
+  });
+});
+
+// GET /api/v1/maia/metrics - Métricas de consumo, latência e custos (Apenas Supervisor)
+apiRouter.get('/maia/metrics', requireRole(['SUPERVISOR']), (req, res) => {
+  const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+  const metrics = maiaConfigManager.getMetrics(establishmentId);
+
+  res.json({
+    success: true,
+    data: metrics
+  });
+});
+
+// POST /api/v1/maia/chat - Assistente de conversação com anti-prompt-injection
+apiRouter.post('/maia/chat', async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ success: false, error: 'Mensagem de texto é obrigatória.' });
+    }
+
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const actorRole = req.user?.role || 'PARTICIPANT';
+    const actorName = req.user?.actorName || 'Participante';
+
+    const response = await maiaService.chat(
+      {
+        establishmentId,
+        sessionId: db.session.id,
+        actorRole,
+        actorName,
+        actorId: req.user?.actorId
+      },
+      message
+    );
+
+    res.json({
+      success: true,
+      data: response
+    });
+  } catch (err: any) {
+    logger.error('[API] Erro no endpoint /maia/chat:', err);
+    res.status(500).json({ success: false, error: 'Erro ao processar mensagem com a MaIA.' });
+  }
+});
+
+// POST /api/v1/maia/speak - Teste de áudio TTS ou anúncio avulso da mesa de som
+apiRouter.post('/maia/speak', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
+  try {
+    const { text, sendToTv } = req.body;
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ success: false, error: 'Texto para síntese é obrigatório.' });
+    }
+
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const ttsResult = await maiaService.speak(establishmentId, text.slice(0, 300));
+
+    if (sendToTv) {
+      wsServer.broadcast('maia.voice.started' as any, {
+        speechText: text,
+        visualText: text.toUpperCase(),
+        audioBase64: ttsResult.audioBase64,
+        mimeType: ttsResult.mimeType,
+        source: 'controller_shoutout',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      data: ttsResult
+    });
+  } catch (err: any) {
+    logger.error('[API] Erro no endpoint /maia/speak:', err);
+    res.status(500).json({ success: false, error: 'Erro ao gerar síntese vocal da MaIA.' });
+  }
+});
+
+// POST /api/v1/maia/test-call - Dispara chamada teste de demonstração para a TV
+apiRouter.post('/maia/test-call', requireRole(['CONTROLLER', 'SUPERVISOR']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const sampleCall = {
+      queueItemId: 'test-item-' + Date.now(),
+      participantDisplayName: 'Cantor Convidado',
+      musicTitle: 'Evidências',
+      musicArtist: 'Chitãozinho & Xororó',
+      isDuet: false
+    };
+
+    const announcement = await maiaVoiceService.generateQueueCallAnnouncement(
+      establishmentId,
+      sampleCall
+    );
+
+    wsServer.broadcast('participant.turn_called', {
+      callingState: {
+        queueItemId: sampleCall.queueItemId,
+        participantDisplayName: sampleCall.participantDisplayName,
+        musicTitle: sampleCall.musicTitle,
+        musicArtist: sampleCall.musicArtist,
+        remainingSeconds: 30,
+        calledAt: new Date().toISOString()
+      },
+      maiaAnnouncement: announcement
+    });
+
+    res.json({
+      success: true,
+      data: announcement,
+      message: 'Chamada teste enviada para a TV e sistema.'
+    });
+  } catch (err: any) {
+    logger.error('[API] Erro ao disparar chamada teste da MaIA:', err);
+    res.status(500).json({ success: false, error: 'Erro ao executar teste de chamada.' });
+  }
+});
+
 

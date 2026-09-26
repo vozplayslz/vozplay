@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { Participant, QueueItem } from '../../types.js';
 
-export type ParticipantSubTab = 'SEARCH' | 'RECOMMENDATIONS' | 'WISHLIST' | 'PLAYLIST' | 'QUEUE' | 'HISTORY';
+export type ParticipantSubTab = 'SEARCH' | 'RECOMMENDATIONS' | 'MAIA' | 'WISHLIST' | 'PLAYLIST' | 'QUEUE' | 'HISTORY';
 
 interface ParticipantSidebarProps {
   activeSubTab: ParticipantSubTab;
@@ -235,6 +235,29 @@ export const ParticipantSidebar: React.FC<ParticipantSidebarProps> = ({
           </div>
           <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-sm flex items-center gap-1">
             IA
+          </span>
+        </button>
+
+        <button
+          id="btn-subtab-maia"
+          onClick={() => setActiveSubTab('MAIA')}
+          className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-bold transition-all duration-200 ${
+            activeSubTab === 'MAIA'
+              ? 'bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <Sparkles className={`w-4 h-4 ${activeSubTab === 'MAIA' ? 'text-white animate-spin' : 'text-pink-400'}`} />
+            <div className="text-left">
+              <span className="block leading-tight">Assistente MaIA</span>
+              <span className={`text-[10px] block font-normal ${activeSubTab === 'MAIA' ? 'text-purple-100' : 'text-slate-500'}`}>
+                Minha vez, tom & dicas
+              </span>
+            </div>
+          </div>
+          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+            Voz
           </span>
         </button>
 

@@ -62,30 +62,34 @@ class AuthService {
    * Inicializa credenciais com Argon2id sem qualquer fallback fraco hardcoded
    */
   public async initDefaultCredentials(): Promise<void> {
-    const supervisorPass = process.env.SUPERVISOR_PASSWORD || 'VozPlay@SuperAdmin2026!SLZ';
-    const controllerPass = process.env.CONTROLLER_PASSWORD || 'VozPlay@SoundDesk704!SLZ';
+    const supervisorPass = process.env.SUPERVISOR_PASSWORD;
+    const controllerPass = process.env.CONTROLLER_PASSWORD;
 
-    const superHash = await this.hashPassword(supervisorPass);
-    const adminUser: OperationalUser = {
-      id: 'usr-admin-master',
-      name: 'Supervisor / Administrador Geral',
-      email: 'admin@vozplay.ai.slz.br',
-      role: 'SUPERVISOR',
-      passwordHash: superHash,
-      createdAt: new Date().toISOString()
-    };
-    this.operationalUsers.set(adminUser.id, adminUser);
+    if (supervisorPass) {
+      const superHash = await this.hashPassword(supervisorPass);
+      const adminUser: OperationalUser = {
+        id: 'usr-admin-master',
+        name: 'Supervisor / Administrador Geral',
+        email: 'admin@vozplay.ai.slz.br',
+        role: 'SUPERVISOR',
+        passwordHash: superHash,
+        createdAt: new Date().toISOString()
+      };
+      this.operationalUsers.set(adminUser.id, adminUser);
+    }
 
-    const ctrlHash = await this.hashPassword(controllerPass);
-    const ctrlUser: OperationalUser = {
-      id: 'usr-ctrl-booth',
-      name: 'Operador de Mesa de Som',
-      email: 'operador@vozplay.ai.slz.br',
-      role: 'CONTROLLER',
-      passwordHash: ctrlHash,
-      createdAt: new Date().toISOString()
-    };
-    this.operationalUsers.set(ctrlUser.id, ctrlUser);
+    if (controllerPass) {
+      const ctrlHash = await this.hashPassword(controllerPass);
+      const ctrlUser: OperationalUser = {
+        id: 'usr-ctrl-booth',
+        name: 'Operador de Mesa de Som',
+        email: 'operador@vozplay.ai.slz.br',
+        role: 'CONTROLLER',
+        passwordHash: ctrlHash,
+        createdAt: new Date().toISOString()
+      };
+      this.operationalUsers.set(ctrlUser.id, ctrlUser);
+    }
 
     this.isInitialized = true;
   }

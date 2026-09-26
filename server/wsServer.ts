@@ -15,6 +15,7 @@ import { db } from './db.js';
 import { WSEventType, WSMessage } from '../src/types.js';
 import { authService, UserRole } from './auth.js';
 import { logger } from './logger.js';
+import { maiaQueueCaller } from './maia/index.js';
 
 interface ClientConnection {
   id: string;
@@ -140,19 +141,27 @@ class VozPlayWSServer {
 
       // Verificação autoritativa da janela de 30 segundos da chamada do participante
       const timeoutResult = await db.checkCallingTimeout();
-      if (timeoutResult && timeoutResult.expired) {
+      if (timeoutResult && timeoutResult.expired && timeoutResult.item) {
         if (timeoutResult.missedTurnCount === 1) {
-          this.broadcast('participant.turn_missed', {
-            item: timeoutResult.item,
-            missedTurnCount: 1,
-            message: 'O tempo de 30 segundos expirou. O participante foi mantido na fila para a próxima oportunidade.'
-          });
+          maiaQueueCaller.handleFirstAbsence(
+            db.session.establishmentId,
+            timeoutResult.item.id,
+            timeoutResult.item.participantDisplayName,
+            timeoutResult.item.musicTitle,
+            timeoutResult.item.musicArtist,
+            timeoutResult.item
+          ).catch(e => logger.warn('[MaIA] Falha ao processar 1ª ausência:', e));
         } else if (timeoutResult.missedTurnCount === 2) {
-          this.broadcast('participant.turn_missed_again', {
-            item: timeoutResult.item,
-            missedTurnCount: 2,
-            message: 'Segunda perda de vez consecutiva. A música foi movida para o final da fila rotativa.'
-          });
+          const nextSinger = db.queue.find(q => q.status === 'QUEUED')?.participantDisplayName;
+          maiaQueueCaller.handleSecondAbsence(
+            db.session.establishmentId,
+            timeoutResult.item.id,
+            timeoutResult.item.participantDisplayName,
+            timeoutResult.item.musicTitle,
+            timeoutResult.item.musicArtist,
+            nextSinger,
+            timeoutResult.item
+          ).catch(e => logger.warn('[MaIA] Falha ao processar 2ª ausência:', e));
           this.broadcast('queue.item_requeued', { item: timeoutResult.item });
         }
         this.broadcastAuthoritativeState();

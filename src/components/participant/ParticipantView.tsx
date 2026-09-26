@@ -138,6 +138,49 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
   // Calling & Live Stage State (Turn Management)
   const [callingState, setCallingState] = useState<CallingParticipantState | null>(null);
   const [isCalled, setIsCalled] = useState<boolean>(false);
+
+  // Participant MaIA Assistant State
+  const [participantMaiaInput, setParticipantMaiaInput] = useState('');
+  const [participantMaiaMessages, setParticipantMaiaMessages] = useState<Array<{ role: 'user' | 'maia'; text: string; time: string }>>([
+    {
+      role: 'maia',
+      text: 'Olá! Sou a MaIA, assistente vocal do VozPlay. Quer saber quando é a sua vez, receber dicas de tom para cantar melhor ou sugestões de músicas?',
+      time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    }
+  ]);
+  const [isParticipantMaiaLoading, setIsParticipantMaiaLoading] = useState(false);
+
+  const handleParticipantMaiaSend = async (customMessage?: string) => {
+    const text = (customMessage || participantMaiaInput).trim();
+    if (!text) return;
+    setParticipantMaiaInput('');
+    const nowTime = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    setParticipantMaiaMessages(prev => [...prev, { role: 'user', text, time: nowTime }]);
+    setIsParticipantMaiaLoading(true);
+
+    try {
+      const res = await fetch('/api/v1/maia/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      });
+      const data = await res.json();
+      const reply = data.success && data.data?.text ? data.data.text : 'No momento estou concentrada na transmissão do palco. Divirta-se cantando!';
+      setParticipantMaiaMessages(prev => [...prev, {
+        role: 'maia',
+        text: reply,
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      }]);
+    } catch {
+      setParticipantMaiaMessages(prev => [...prev, {
+        role: 'maia',
+        text: 'Não consegui me conectar com a MaIA agora. Tente novamente em instantes.',
+        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      }]);
+    } finally {
+      setIsParticipantMaiaLoading(false);
+    }
+  };
   const [callingRemainingSeconds, setCallingRemainingSeconds] = useState<number>(30);
   const [isStartingTurn, setIsStartingTurn] = useState<boolean>(false);
   const [isPlayingNow, setIsPlayingNow] = useState<boolean>(false);
@@ -1152,6 +1195,18 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveSubTab('MAIA')}
+              className={`flex-1 min-w-[95px] py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                activeSubTab === 'MAIA'
+                  ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${activeSubTab === 'MAIA' ? 'text-white animate-spin' : 'text-pink-400'}`} />
+              <span>MaIA Voz</span>
+            </button>
+
+            <button
               onClick={() => setActiveSubTab('WISHLIST')}
               className={`flex-1 min-w-[90px] py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
                 activeSubTab === 'WISHLIST'
@@ -1465,7 +1520,180 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
         />
       )}
 
-      {/* TAB 1.5: LISTA DE DESEJOS (WISHLIST - PRÓXIMAS RODADAS) */}
+      {/* TAB 1.3: ASSISTENTE VOCAL MAIA (COPILOT & DICAS DO PARTICIPANTE) */}
+      {activeSubTab === 'MAIA' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Hero Banner */}
+          <div className="rounded-3xl bg-gradient-to-r from-purple-950/50 via-[#101428] to-[#0c0f1d] border border-purple-500/30 p-5 sm:p-7 relative overflow-hidden shadow-2xl">
+            <div className="absolute top-0 right-0 -mr-12 -mt-12 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-purple-600 via-pink-500 to-indigo-600 flex items-center justify-center text-white shadow-xl shadow-purple-600/30">
+                  <Sparkles className="w-7 h-7 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg sm:text-xl font-black text-white">MaIA — Assistente Vocal</h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                      Voz Nativa pt-BR
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1 max-w-xl">
+                    Tire dúvidas sobre sua vez na fila, afinação, transposição de semitons e dicas para brilhar no palco.
+                  </p>
+                </div>
+              </div>
+
+              {myQueuedSong && (
+                <button
+                  onClick={() => onOpenTracker && onOpenTracker(myQueuedSong.id)}
+                  className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-purple-600/30 shrink-0"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Acompanhar Vez</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Bloco 1: Status da Minha Vez & Dicas */}
+            <div className="space-y-6">
+              {/* Card Minha Posição */}
+              <div className="p-5 rounded-3xl bg-[#0e1322]/90 border border-white/10 shadow-xl space-y-3">
+                <h3 className="text-xs font-black uppercase tracking-wider text-purple-300 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-purple-400" /> Minha Posição na Fila
+                </h3>
+
+                {myQueuedSong ? (
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-950/30 to-black/40 border border-purple-500/20 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white truncate max-w-[200px]">
+                        {myQueuedSong.musicTitle}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-mono font-bold">
+                        {myQueuedSong.status === 'CALLED' ? 'CHAMADO AGORA!' : myQueuedSong.status === 'PLAYING' ? 'CANTANDO NO PALCO' : `${queuedBeforeCount + 1}º da Fila`}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">{myQueuedSong.musicArtist} • Versão {myQueuedSong.versionStyle}</p>
+                    <div className="flex items-center justify-between text-[11px] text-slate-300 pt-2 border-t border-white/5">
+                      <span>Espera estimada:</span>
+                      <strong className="text-purple-300 font-mono">
+                        {myQueuedSong.status === 'CALLED' ? 'Suba ao palco!' : `~${(queuedBeforeCount + 1) * 4} minutos`}
+                      </strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-black/30 border border-white/5 text-center text-xs text-slate-400">
+                    Você ainda não tem músicas ativas na fila. Escolha uma música no catálogo para cantar!
+                  </div>
+                )}
+              </div>
+
+              {/* Card Dicas Vocais */}
+              <div className="p-5 rounded-3xl bg-[#0e1322]/90 border border-white/10 shadow-xl space-y-3">
+                <h3 className="text-xs font-black uppercase tracking-wider text-pink-300 flex items-center gap-2">
+                  <Mic2 className="w-4 h-4 text-pink-400" /> Dicas da MaIA para o Palco
+                </h3>
+
+                <div className="space-y-2 text-xs text-slate-300">
+                  <div className="p-3 rounded-xl bg-black/40 border border-white/5 flex gap-2.5 items-start">
+                    <span className="text-base shrink-0">🎯</span>
+                    <div>
+                      <strong className="text-white block">Transposição de Tom (-3 a +3):</strong>
+                      <span>Se a música for muito aguda, teste -1 ou -2 semitons na hora de escolher para cantar com conforto sem forçar a garganta.</span>
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-black/40 border border-white/5 flex gap-2.5 items-start">
+                    <span className="text-base shrink-0">🎤</span>
+                    <div>
+                      <strong className="text-white block">Distância do Microfone:</strong>
+                      <span>Mantenha o microfone a cerca de dois dedos da boca e aponte para o centro dos lábios para captar toda a dinâmica da sua voz.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bloco 2: Chat Interativo com a MaIA */}
+            <div className="p-5 rounded-3xl bg-[#0e1322]/90 border border-white/10 shadow-xl flex flex-col justify-between space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                <h3 className="text-xs font-black uppercase tracking-wider text-purple-300 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" /> Converse com a MaIA
+                </h3>
+                <span className="text-[10px] text-slate-500">Inteligência Artificial VozPlay</span>
+              </div>
+
+              {/* Chat Message Box */}
+              <div className="h-64 overflow-y-auto space-y-3 p-3.5 rounded-2xl bg-black/40 border border-white/[0.06] text-xs">
+                {participantMaiaMessages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+                  >
+                    <div
+                      className={`max-w-[85%] p-3 rounded-2xl leading-relaxed ${
+                        msg.role === 'user'
+                          ? 'bg-purple-600 text-white rounded-br-none shadow-md shadow-purple-600/20'
+                          : 'bg-slate-800 text-slate-200 rounded-bl-none border border-white/5'
+                      }`}
+                    >
+                      <p>{msg.text}</p>
+                    </div>
+                    <span className="text-[9px] text-slate-500 mt-0.5 px-1">{msg.time}</span>
+                  </div>
+                ))}
+                {isParticipantMaiaLoading && (
+                  <div className="flex items-center gap-2 text-slate-400 text-xs italic">
+                    <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-spin" />
+                    <span>MaIA pensando...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick suggestions & input */}
+              <div className="space-y-2">
+                <div className="flex gap-1.5 flex-wrap">
+                  {[
+                    'Quando é a minha vez?',
+                    'Qual o melhor tom para Evidências?',
+                    'Como aquecer a voz antes de cantar?'
+                  ].map((q, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleParticipantMaiaSend(q)}
+                      disabled={isParticipantMaiaLoading}
+                      className="px-2.5 py-1 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-slate-300 text-[10px] transition text-left"
+                    >
+                      💡 {q}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={participantMaiaInput}
+                    onChange={(e) => setParticipantMaiaInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleParticipantMaiaSend();
+                    }}
+                    placeholder="Pergunte à MaIA sobre músicas, tom, fila..."
+                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                  />
+                  <button
+                    onClick={() => handleParticipantMaiaSend()}
+                    disabled={isParticipantMaiaLoading || !participantMaiaInput.trim()}
+                    className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-purple-600/30 disabled:opacity-50"
+                  >
+                    <span>Enviar</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {activeSubTab === 'WISHLIST' && (
         <div className="space-y-5 animate-in fade-in duration-300">
           {/* Hero Banner */}
