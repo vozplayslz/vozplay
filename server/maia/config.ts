@@ -52,14 +52,14 @@ export const COST_TIER_MODELS: Record<MaIACostTier, MaIAModelMapping> = {
   }
 };
 
-// Identidade padrão da voz da MaIA (Feminina, humanizada, brasileira, acolhedora)
+// Identidade padrão da voz da MaIA (Feminina, humanizada, brasileira, descontraída)
 export const DEFAULT_MAIA_VOICE: VoiceConfig = {
   voice_provider: 'gemini',
   voice_id: 'Aoede', // Voz feminina expressiva, acolhedora e calorosa
   language: 'pt-BR',
-  persona: 'MaIA - Mestre de Cerimônias e Assistente Vocal VozPlay',
+  persona: 'MaIA — Mestre de Cerimônias do VozPlay',
   speed: 1.0,
-  style: 'acolhedora_profissional',
+  style: 'animada',
   fallback_voice: 'pt-BR-Standard-A'
 };
 

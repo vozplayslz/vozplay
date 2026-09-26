@@ -36,7 +36,8 @@ class MaiaVoiceService {
       params.musicTitle,
       params.musicArtist,
       params.isDuet,
-      params.partnerDisplayName
+      params.partnerDisplayName,
+      params.queueItemId
     );
 
     const config = maiaConfigManager.getConfig(establishmentId);
@@ -82,7 +83,7 @@ class MaiaVoiceService {
     musicTitle: string,
     musicArtist: string
   ): Promise<QueueCallVoicePayload> {
-    const { speechText, visualText } = buildFirstAbsenceText(participantDisplayName);
+    const { speechText, visualText } = buildFirstAbsenceText(participantDisplayName, queueItemId);
 
     let audioBase64: string | null = null;
     let mimeType = 'audio/wav';
@@ -90,7 +91,7 @@ class MaiaVoiceService {
     try {
       const ttsRes = await maiaTTSService.synthesize(establishmentId, {
         text: speechText,
-        style: 'acolhedora_profissional'
+        style: 'animada'
       });
       audioBase64 = ttsRes.audioBase64;
       mimeType = ttsRes.mimeType;
@@ -123,7 +124,7 @@ class MaiaVoiceService {
     musicArtist: string,
     nextSingerName?: string
   ): Promise<QueueCallVoicePayload> {
-    const { speechText, visualText } = buildSecondAbsenceText(participantDisplayName, nextSingerName);
+    const { speechText, visualText } = buildSecondAbsenceText(participantDisplayName, nextSingerName, queueItemId);
 
     let audioBase64: string | null = null;
     let mimeType = 'audio/wav';
@@ -131,7 +132,7 @@ class MaiaVoiceService {
     try {
       const ttsRes = await maiaTTSService.synthesize(establishmentId, {
         text: speechText,
-        style: 'cerimoniosa'
+        style: 'animada'
       });
       audioBase64 = ttsRes.audioBase64;
       mimeType = ttsRes.mimeType;

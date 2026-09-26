@@ -10,6 +10,7 @@
 
 import { GoogleGenAI } from '@google/genai';
 import { AIProvider, TTSRequest, TTSResponse } from '../types.js';
+import { MAIA_VOZPLAY_PERSONA } from '../prompts.js';
 import { logger } from '../../logger.js';
 
 export class GeminiProvider implements AIProvider {
@@ -173,7 +174,7 @@ export class GeminiProvider implements AIProvider {
       systemInstruction: {
         parts: [
           {
-            text: 'Você é a MaIA, assistente e locutora ao vivo do VozPlay. Converse em português brasileiro de forma acolhedora, curta e divertida.'
+            text: MAIA_VOZPLAY_PERSONA
           }
         ]
       }

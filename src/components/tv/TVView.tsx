@@ -417,17 +417,17 @@ export const TVView: React.FC<TVViewProps> = ({
       const songArtist = announcement?.musicArtist || lastQueueEvent.callingState?.musicArtist || lastQueueEvent.item?.musicArtist;
       const songFull = songTitle && songArtist ? `${songTitle} • ${songArtist}` : songTitle || '';
       const speech = announcement?.speechText || (isDuet && partner
-        ? `${singer} e ${partner}, chegou a sua vez! Preparem-se para cantar ${songTitle || 'no palco'}.`
-        : `${singer}, chegou a sua vez! Prepare-se para cantar ${songTitle || 'no palco'}.`);
+        ? `${singer} e ${partner}! Agora é com vocês! Dupla formada e o palco esperando! 🎤`
+        : `Bora, ${singer}! Chegou a sua vez! O palco é todinho seu! 🎤`);
 
       if (maiaNoticeTimerRef.current) clearTimeout(maiaNoticeTimerRef.current);
       setActiveMaiaNotice({
         id: `maia-call-${Date.now()}`,
-        badge: isDuet ? 'MAIA • DUETO CONVOCADO' : 'MAIA • CONVOCAÇÃO VOCAL',
+        badge: isDuet ? 'MAIA • DUETO NO PALCO' : 'MAIA • HORA DO SHOW',
         singer: isDuet && partner ? `${singer} & ${partner}` : singer,
         song: songFull,
         speechText: speech,
-        visualText: announcement?.visualText || 'SUA VEZ NO PALCO!',
+        visualText: announcement?.visualText || (isDuet ? 'DUETO NO PALCO!' : 'BORA PRO PALCO!'),
         callType: 'CALL',
         audioBase64: announcement?.audioBase64,
         mimeType: announcement?.mimeType || 'audio/wav'
@@ -439,7 +439,7 @@ export const TVView: React.FC<TVViewProps> = ({
       }, 7500);
     } else if (eventType === 'participant.turn_missed' || announcement?.callType === 'FIRST_ABSENCE') {
       const singer = announcement?.participantDisplayName || lastQueueEvent.item?.participantDisplayName || 'Cantor';
-      const speech = announcement?.speechText || `${singer}, estamos esperando você no palco. Prepare-se para começar!`;
+      const speech = announcement?.speechText || `${singer}, estamos esperando você! O microfone já tá pronto no palco. Bora cantar!`;
 
       if (maiaNoticeTimerRef.current) clearTimeout(maiaNoticeTimerRef.current);
       setActiveMaiaNotice({
@@ -447,7 +447,7 @@ export const TVView: React.FC<TVViewProps> = ({
         badge: 'MAIA • 1ª AUSÊNCIA (30s RESTANTES)',
         singer,
         speechText: speech,
-        visualText: 'AGUARDANDO CANTOR NA MESA',
+        visualText: announcement?.visualText || 'O PALCO TÁ TE ESPERANDO!',
         callType: 'FIRST_ABSENCE',
         audioBase64: announcement?.audioBase64,
         mimeType: announcement?.mimeType || 'audio/wav'
@@ -459,15 +459,15 @@ export const TVView: React.FC<TVViewProps> = ({
       }, 7500);
     } else if (eventType === 'participant.turn_missed_again' || announcement?.callType === 'SECOND_ABSENCE') {
       const singer = announcement?.participantDisplayName || lastQueueEvent.item?.participantDisplayName || 'Cantor';
-      const speech = announcement?.speechText || `${singer} não compareceu à mesa. Vamos chamar o próximo cantor da fila!`;
+      const speech = announcement?.speechText || `${singer} deu aquela escapadinha! 😂 A música foi pro fim da fila. Próximo cantor, prepara o gogó!`;
 
       if (maiaNoticeTimerRef.current) clearTimeout(maiaNoticeTimerRef.current);
       setActiveMaiaNotice({
         id: `maia-missed-2-${Date.now()}`,
-        badge: 'MAIA • MÚSICA REENFILEIRADA',
+        badge: 'MAIA • MÚSICA NO FIM DA FILA',
         singer,
         speechText: speech,
-        visualText: 'CONVOCANDO PRÓXIMO DA FILA',
+        visualText: announcement?.visualText || 'FOI PRO FIM DA FILA — QUEM É O PRÓXIMO?',
         callType: 'SECOND_ABSENCE',
         audioBase64: announcement?.audioBase64,
         mimeType: announcement?.mimeType || 'audio/wav'

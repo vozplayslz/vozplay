@@ -942,10 +942,10 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
                 {/* Preset Chips */}
                 <div className="flex flex-wrap gap-2">
                   {[
-                    'Últimas 3 músicas da rodada!',
-                    'Pausa técnica de 5 minutos.',
-                    'Palco liberado! Próximos cantores, atenção!',
-                    'Show de carisma da plateia! Parabéns!'
+                    'Bora galera, faltam 3 músicas pra fechar a rodada!',
+                    'Pausa técnica de 5 minutinhos pro chopp!',
+                    'Palco liberado! Próximo cantor, solta a voz!',
+                    'Show de carisma! A plateia foi à loucura!'
                   ].map((preset, idx) => (
                     <button
                       key={idx}

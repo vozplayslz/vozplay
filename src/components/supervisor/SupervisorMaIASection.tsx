@@ -37,7 +37,7 @@ export const SupervisorMaIASection: React.FC<SupervisorMaIASectionProps> = ({ es
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [testSpeechText, setTestSpeechText] = useState('João, chegou a sua vez! Prepare-se para cantar Evidências no palco do VozPlay.');
+  const [testSpeechText, setTestSpeechText] = useState('Bora, João! Chegou a sua vez! O palco é seu pra cantar Evidências! 🎤');
   const [isTestingSpeech, setIsTestingSpeech] = useState(false);
   const [testStatus, setTestStatus] = useState<string | null>(null);
 

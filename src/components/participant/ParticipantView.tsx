@@ -144,7 +144,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
   const [participantMaiaMessages, setParticipantMaiaMessages] = useState<Array<{ role: 'user' | 'maia'; text: string; time: string }>>([
     {
       role: 'maia',
-      text: 'Olá! Sou a MaIA, assistente vocal do VozPlay. Quer saber quando é a sua vez, receber dicas de tom para cantar melhor ou sugestões de músicas?',
+      text: 'E aí! Eu sou a MaIA, a mestre de cerimônias do VozPlay! 🎤✨ Quer saber sua vez na fila, uma dica de ouro de tom ou escolher aquele hit pra levantar o bar? Manda aqui!',
       time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -1656,8 +1656,9 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
                 <div className="flex gap-1.5 flex-wrap">
                   {[
                     'Quando é a minha vez?',
-                    'Qual o melhor tom para Evidências?',
-                    'Como aquecer a voz antes de cantar?'
+                    'Tô nervoso pra cantar, me ajuda?',
+                    'Qual música combina comigo hoje?',
+                    'Qual o melhor tom para Evidências?'
                   ].map((q, idx) => (
                     <button
                       key={idx}
