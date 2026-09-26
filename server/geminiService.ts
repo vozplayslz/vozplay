@@ -473,7 +473,7 @@ ${participantName ? `Nome do cantor(a): "${participantName}".` : ''}
 Gere um título criativo para a playlist, uma breve descrição entusiasmada, uma tag de vibe (ex: '🔥 Fervo Total' ou '🎤 Hinos Imortais') e a lista detalhada de faixas recomendadas.`;
 
   try {
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
     const response = await ai.models.generateContent({
       model: modelName,
