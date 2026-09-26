@@ -2,8 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * MAIA CORE TYPES — VOZPLAY NATIVE AI
- * Tipagens completas para Router, Providers, Voice, TTS, Tools, Config e Métricas.
+ * MAIA CORE TYPES — AI ORCHESTRATION, QUOTAS, CREDENTIALS & FALLBACK
+ * Tipagens completas para Router, Provedores, Quotas, Credenciais, Fallback, Auditoria e Métricas.
  */
 
 export type MaIATaskType = 
@@ -21,15 +21,20 @@ export type MaIACostTier =
   | 'VOZ'
   | 'PERSONALIZADO';
 
-export type MaIAProviderType = 'gemini' | '9router' | 'custom_gateway';
+export type MaIAProviderType = 
+  | 'gemini_enlace'
+  | 'gemini_customer'
+  | '9router'
+  | 'custom_gateway'
+  | 'gemini'; // Alias para gemini_enlace
 
 export interface VoiceConfig {
   voice_provider: string; // 'gemini'
   voice_id: string; // 'Aoede' | 'Kore' | 'Puck'
   language: string; // 'pt-BR'
-  persona: string; // 'MaIA - Mestre de Cerimônias e Assistente Vocal VozPlay'
+  persona: string; // 'MaIA — Mestre de Cerimônias do VozPlay'
   speed: number; // 0.8 a 1.2
-  style: string; // 'acolhedora_profissional' | 'animada' | 'cerimoniosa'
+  style: string; // 'animada' | 'acolhedora_profissional' | 'cerimoniosa'
   fallback_voice: string; // 'pt-BR-Standard-A'
 }
 
@@ -48,6 +53,9 @@ export interface MaIALimits {
   max_live_session_duration_minutes: number;
   max_tts_requests_per_day: number;
   max_requests_per_minute: number;
+  warning_threshold_percent?: number;
+  critical_threshold_percent?: number;
+  exhausted_threshold_percent?: number;
 }
 
 export interface MaIAUsageMetrics {
@@ -66,6 +74,7 @@ export interface MaIAUsageMetrics {
   lastUsedAt: string;
   byModel: Record<string, number>;
   byTask: Record<string, number>;
+  byProvider?: Record<string, number>;
 }
 
 export interface MaIAConfig {
@@ -81,6 +90,8 @@ export interface MaIAConfig {
   announce_absences: boolean;
   announce_duets: boolean;
   tv_audio_enabled: boolean;
+  fallback_enabled?: boolean;
+  fallback_chain?: MaIAProviderType[];
 }
 
 export interface TTSRequest {
@@ -124,10 +135,12 @@ export interface MaIAToolDefinition {
 
 export interface AIProvider {
   name: string;
+  capabilities: MaIATaskType[];
   generateText: (prompt: string, options?: { systemInstruction?: string; model?: string; maxTokens?: number }) => Promise<string>;
   generateSpeech: (request: TTSRequest, options?: { model?: string }) => Promise<TTSResponse>;
   generateLiveConfig?: (options?: any) => Promise<any>;
   isAvailable: () => boolean;
+  testConnection?: (options?: any) => Promise<ValidationResult>;
 }
 
 export interface QueueCallVoicePayload {
@@ -143,4 +156,182 @@ export interface QueueCallVoicePayload {
   mimeType: string;
   callType: 'INITIAL' | 'FIRST_ABSENCE' | 'SECOND_ABSENCE';
   timestamp: string;
+}
+
+// ==========================================
+// AI CREDENTIALS & CUSTOM PROJECTS
+// ==========================================
+
+export type CredentialStatus = 'ACTIVE' | 'VALIDATED' | 'PENDING_KEY' | 'INVALID' | 'DISABLED';
+
+export interface AICredential {
+  id: string;
+  tenant_id: string;
+  establishment_id: string;
+  provider: MaIAProviderType;
+  credential_type: 'API_KEY' | 'SERVICE_ACCOUNT' | 'BEARER_TOKEN';
+  secret_reference: string; // Hash seguro ou chave cifrada
+  project_id: string; // Ex: 'karaoke-music-slz' ou 'enlace-default'
+  display_name: string; // Ex: 'Meu projeto Gemini - Karaokê Music SLZ'
+  status: CredentialStatus;
+  allowed_tasks: MaIATaskType[];
+  allowed_models: string[];
+  priority: number;
+  created_at: string;
+  updated_at: string;
+  last_validated_at?: string;
+  masked_key?: string; // Ex: 'AIzaSy...****'
+  error_message?: string;
+}
+
+export interface ValidationCheck {
+  name: string;
+  passed: boolean;
+  message: string;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  provider: string;
+  projectId?: string;
+  checks: ValidationCheck[];
+  error?: string;
+}
+
+// ==========================================
+// QUOTAS, USAGE TRACKER & SEMAPHORE
+// ==========================================
+
+export type QuotaSource = 'DETECTED' | 'PROVIDER_REPORTED' | 'MANUAL' | 'ESTIMATED' | 'UNKNOWN';
+export type QuotaStatus = 'NORMAL' | 'WARNING' | 'CRITICAL' | 'EXHAUSTED' | 'UNKNOWN';
+
+export interface QuotaMetricDetail {
+  limit: number;
+  used: number;
+  source: QuotaSource;
+  unit: string;
+  status: QuotaStatus;
+  percentage: number;
+}
+
+export interface ProviderQuotaReport {
+  provider: MaIAProviderType;
+  projectId?: string;
+  displayName: string;
+  status: QuotaStatus;
+  overallPercentage: number;
+  rpm: QuotaMetricDetail;
+  tpm: QuotaMetricDetail;
+  rpd: QuotaMetricDetail;
+  concurrency: QuotaMetricDetail;
+  lastCheckedAt: string;
+  warningAlert?: string;
+}
+
+export interface InternalQuotaLimits {
+  daily_usd: number;
+  monthly_usd: number;
+  max_rpm: number;
+  max_rpd: number;
+  warning_threshold: number; // 70%
+  critical_threshold: number; // 85%
+  exhausted_threshold: number; // 95%
+}
+
+// ==========================================
+// FALLBACK & OBSERVABILITY
+// ==========================================
+
+export interface FallbackConfig {
+  enabled: boolean;
+  provider_chain: MaIAProviderType[];
+}
+
+export interface FallbackEvent {
+  id: string;
+  tenant_id: string;
+  establishment_id: string;
+  provider_from: string;
+  provider_to: string;
+  reason: string;
+  model: string;
+  task: MaIATaskType;
+  timestamp: string;
+  result: 'SUCCESS' | 'FAILED';
+}
+
+export type AIAuditEventType = 
+  | 'AI_PROVIDER_CONNECTED'
+  | 'AI_PROVIDER_VALIDATED'
+  | 'AI_PROVIDER_ACTIVATED'
+  | 'AI_PROVIDER_DISABLED'
+  | 'AI_PROVIDER_SWITCH'
+  | 'AI_QUOTA_WARNING'
+  | 'AI_QUOTA_CRITICAL'
+  | 'AI_QUOTA_EXHAUSTED'
+  | 'AI_FALLBACK'
+  | 'AI_CREDENTIAL_ROTATED'
+  | 'AI_CREDENTIAL_REVOKED';
+
+export interface AIAuditEvent {
+  id: string;
+  actor: string;
+  tenant_id: string;
+  establishment_id: string;
+  event_type: AIAuditEventType;
+  provider: string;
+  model?: string;
+  reason?: string;
+  details?: Record<string, any>;
+  timestamp: string;
+}
+
+export interface MaIADashboardDTO {
+  active_provider: {
+    type: MaIAProviderType;
+    display_name: string;
+    project_id: string;
+    status: 'ACTIVE' | 'FALLBACK_ACTIVE' | 'DISABLED';
+    is_customer_project: boolean;
+  };
+  providers: Array<{
+    type: MaIAProviderType;
+    display_name: string;
+    project_id: string;
+    status: CredentialStatus;
+    is_active: boolean;
+    has_credentials: boolean;
+    masked_key: string;
+    capabilities: MaIATaskType[];
+    quota_status: QuotaStatus;
+    quota_percentage: number;
+  }>;
+  quota_semaphore: {
+    status: QuotaStatus;
+    percentage: number;
+    source: QuotaSource;
+    alert_message?: string;
+  };
+  quotas: ProviderQuotaReport;
+  usage: {
+    requests_today: number;
+    tokens_input_today: number;
+    tokens_output_today: number;
+    average_latency_ms: number;
+    errors_today: number;
+    rate_limits_429_today: number;
+    fallbacks_today: number;
+  };
+  costs: {
+    estimated_usd_today: number;
+    estimated_usd_month: number;
+    billing_owner: string; // 'Enlace' ou nome do projeto do cliente
+    currency: string;
+  };
+  fallback_policy: {
+    enabled: boolean;
+    chain: MaIAProviderType[];
+    last_fallback?: FallbackEvent;
+  };
+  limits: InternalQuotaLimits;
 }

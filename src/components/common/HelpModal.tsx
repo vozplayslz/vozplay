@@ -33,7 +33,8 @@ import {
   Heart,
   Headphones,
   Users,
-  Camera
+  Camera,
+  Cpu
 } from 'lucide-react';
 import { VozPlayMascotIcon } from './VozPlayLogo.js';
 
@@ -403,6 +404,20 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                       - <strong>Cadastro de Operadores:</strong> Cadastre operadores específicos da equipe (com nome, e-mail, função e senha inicial) para rastreabilidade de acessos nos logs de auditoria.<br />
                       - <strong>Senhas Seguras:</strong> O sistema não utiliza senhas padrão em código. Defina suas senhas exclusivas via variáveis de ambiente <code className="text-purple-300 font-mono">SUPERVISOR_PASSWORD</code> e <code className="text-purple-300 font-mono">CONTROLLER_PASSWORD</code> no arquivo <code className="text-purple-300 font-mono">.env</code>.<br />
                       - <strong>Persistência em Produção:</strong> Credenciais são hasheadas com Argon2id e vinculadas a sessões criptográficas com Bearer Token.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-[#111728] border border-cyan-500/30 space-y-2">
+                    <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-2">
+                      <Cpu className="w-4 h-4 text-cyan-400" /> MaIA AI Orchestration Core & Semáforo de Quotas
+                    </h4>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      - <strong>Provedor Padrão (Gemini Enlace):</strong> Toda nova instalação já funciona imediatamente com o Gemini Enlace ativo por padrão, sem custos iniciais ou configuração do cliente.<br />
+                      - <strong>Meu Projeto Gemini:</strong> Conecte o projeto Google Cloud próprio do seu estabelecimento na aba <em>Provedores & Credenciais</em> para utilizar quotas exclusivas e faturamento direto com o Google.<br />
+                      - <strong>9router Gateway Opcional:</strong> Suporte nativo a gateways de IA com URL pré-configurada (<code className="text-cyan-300 font-mono">https://9router.ai.slz.br</code>) e chave de API com status &quot;Aguardando API Key&quot;.<br />
+                      - <strong>Semáforo de Quotas em Tempo Real:</strong> Monitoramento contínuo com 4 níveis operacionais: <span className="text-emerald-400 font-bold">NORMAL</span> (0-70%), <span className="text-yellow-400 font-bold">WARNING</span> (70-85%), <span className="text-amber-400 font-bold">CRITICAL</span> (85-95%) e <span className="text-rose-400 font-bold">EXHAUSTED</span> (&gt;95% ou 429), alertando antecipadamente o supervisor.<br />
+                      - <strong>Cadeia de Fallback Resiliente:</strong> Em caso de pico de quota ou indisponibilidade externa, a MaIA chaveia automaticamente (Gemini Cliente ➔ Gemini Enlace ➔ 9router ➔ Contingência Local), garantindo que a festa e o karaokê nunca parem.<br />
+                      - <strong>Segurança Absoluta de Credenciais:</strong> API Keys são criptografadas com AES-256-GCM no cofre seguro e estritamente mascaradas na interface (<code className="text-slate-400 font-mono">••••••••••••••••</code>), sem nunca serem expostas em texto puro ou logs.
                     </p>
                   </div>
                 </div>

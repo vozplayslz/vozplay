@@ -4,12 +4,14 @@
  * 
  * MAIA AI MODEL ROUTER
  * Roteador central de inteligência artificial do VozPlay.
- * Decide qual modelo e provider utilizar com base na tarefa e no perfil de custo-benefício.
+ * Decide qual modelo e provider utilizar com base na tarefa, quotas, tolerância a falhas e custo-benefício.
  */
 
-import { MaIATaskType, AIProvider } from './types.js';
+import { MaIATaskType, AIProvider, MaIAProviderType } from './types.js';
 import { maiaConfigManager } from './config.js';
 import { getAIProvider } from './providers/index.js';
+import { maiaQuotaManager } from './quota/quotaManager.js';
+import { maiaFallbackManager } from './fallback/fallbackManager.js';
 import { logger } from '../logger.js';
 
 class AIModelRouter {
@@ -19,19 +21,59 @@ class AIModelRouter {
   public resolveRoute(
     establishmentId: string,
     taskType: MaIATaskType
-  ): { provider: AIProvider; model: string; providerName: string } {
+  ): { provider: AIProvider; model: string; providerName: string; providerType: MaIAProviderType } {
     const config = maiaConfigManager.getConfig(establishmentId);
-    const providerName = config.active_provider || 'gemini';
-    const provider = getAIProvider(providerName);
+    let providerType: MaIAProviderType = config.active_provider || 'gemini_enlace';
+    if (providerType === ('gemini' as any)) {
+      providerType = 'gemini_enlace';
+    }
 
-    // Obtém o modelo configurado para esta tarefa no perfil do estabelecimento
+    const provider = getAIProvider(providerType, establishmentId);
     const model = config.models[taskType] || 'gemini-3.8-flash';
 
     return {
       provider,
       model,
-      providerName
+      providerName: providerType,
+      providerType
     };
+  }
+
+  /**
+   * Executa uma tarefa com o provedor resolvido, monitoramento de quota e chaveamento por fallback resiliente
+   */
+  public async executeTask<T>(params: {
+    establishmentId: string;
+    task: MaIATaskType;
+    action: (provider: AIProvider, model: string) => Promise<T>;
+    localContingency: () => T;
+  }): Promise<{ result: T; usedProvider: string; fallbackOccurred: boolean }> {
+    const route = this.resolveRoute(params.establishmentId, params.task);
+    const startTime = Date.now();
+
+    return maiaFallbackManager.executeWithFallback({
+      establishmentId: params.establishmentId,
+      task: params.task,
+      preferredProvider: route.providerType,
+      model: route.model,
+      action: async (providerType) => {
+        const providerInstance = getAIProvider(providerType, params.establishmentId);
+        const res = await params.action(providerInstance, route.model);
+
+        // Registra uso no quota manager
+        const latency = Date.now() - startTime;
+        maiaQuotaManager.recordUsage({
+          establishmentId: params.establishmentId,
+          provider: providerType,
+          task: params.task,
+          model: route.model,
+          latencyMs: latency
+        });
+
+        return res;
+      },
+      localContingency: params.localContingency
+    });
   }
 
   /**
@@ -39,23 +81,14 @@ class AIModelRouter {
    */
   public checkLimits(establishmentId: string): { allowed: boolean; reason?: string } {
     const config = maiaConfigManager.getConfig(establishmentId);
-    const metrics = maiaConfigManager.getMetrics(establishmentId);
 
     if (!config.enabled) {
       return { allowed: false, reason: 'MaIA está desativada para este estabelecimento.' };
     }
 
-    if (metrics.estimatedCostUsd >= config.limits.daily_limit_usd) {
-      logger.warn('[AIModelRouter] Limite diário de custo da MaIA atingido:', {
-        establishmentId,
-        spent: metrics.estimatedCostUsd,
-        limit: config.limits.daily_limit_usd
-      });
-      return { allowed: false, reason: 'Limite diário de consumo da MaIA atingido. Operando em modo de contingência local.' };
-    }
-
-    if (metrics.ttsCalls >= config.limits.max_tts_requests_per_day) {
-      return { allowed: false, reason: 'Limite diário de síntese de voz (TTS) atingido.' };
+    const quotaCheck = maiaQuotaManager.canExecute(establishmentId, 'CHAT', config.active_provider);
+    if (!quotaCheck.allowed) {
+      return { allowed: false, reason: quotaCheck.reason };
     }
 
     return { allowed: true };

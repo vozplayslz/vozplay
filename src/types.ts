@@ -421,10 +421,17 @@ export interface VoiceConfig {
   fallback_voice: string;
 }
 
+export type MaIAProviderType = 
+  | 'gemini_enlace'
+  | 'gemini_customer'
+  | '9router'
+  | 'custom_gateway'
+  | 'gemini';
+
 export interface MaIAConfig {
   establishment_id: string;
   enabled: boolean;
-  active_provider: 'gemini' | '9router' | 'custom_gateway';
+  active_provider: MaIAProviderType;
   gateway_url?: string;
   cost_tier: MaIACostTier;
   models: MaIAModelMapping;
@@ -440,6 +447,151 @@ export interface MaIAConfig {
   announce_absences: boolean;
   announce_duets: boolean;
   tv_audio_enabled: boolean;
+}
+
+export type CredentialStatus = 'ACTIVE' | 'VALIDATED' | 'PENDING_KEY' | 'INVALID' | 'DISABLED';
+
+export interface AICredential {
+  id: string;
+  tenant_id: string;
+  establishment_id: string;
+  provider: MaIAProviderType;
+  credential_type: 'API_KEY' | 'SERVICE_ACCOUNT' | 'BEARER_TOKEN';
+  project_id: string;
+  display_name: string;
+  status: CredentialStatus;
+  allowed_tasks: string[];
+  allowed_models: string[];
+  priority: number;
+  created_at: string;
+  updated_at: string;
+  last_validated_at?: string;
+  masked_key?: string;
+  error_message?: string;
+}
+
+export interface ValidationCheck {
+  name: string;
+  passed: boolean;
+  message: string;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  provider: string;
+  projectId?: string;
+  checks: ValidationCheck[];
+  error?: string;
+}
+
+export type QuotaSource = 'DETECTED' | 'PROVIDER_REPORTED' | 'MANUAL' | 'ESTIMATED' | 'UNKNOWN';
+export type QuotaStatus = 'NORMAL' | 'WARNING' | 'CRITICAL' | 'EXHAUSTED' | 'UNKNOWN';
+
+export interface QuotaMetricDetail {
+  limit: number;
+  used: number;
+  source: QuotaSource;
+  unit: string;
+  status: QuotaStatus;
+  percentage: number;
+}
+
+export interface ProviderQuotaReport {
+  provider: MaIAProviderType;
+  projectId?: string;
+  displayName: string;
+  status: QuotaStatus;
+  overallPercentage: number;
+  rpm: QuotaMetricDetail;
+  tpm: QuotaMetricDetail;
+  rpd: QuotaMetricDetail;
+  concurrency: QuotaMetricDetail;
+  lastCheckedAt: string;
+  warningAlert?: string;
+}
+
+export interface FallbackEvent {
+  id: string;
+  tenant_id: string;
+  establishment_id: string;
+  provider_from: string;
+  provider_to: string;
+  reason: string;
+  model: string;
+  task: string;
+  timestamp: string;
+  result: 'SUCCESS' | 'FAILED';
+}
+
+export interface AIAuditEvent {
+  id: string;
+  actor: string;
+  tenant_id: string;
+  establishment_id: string;
+  event_type: string;
+  provider: string;
+  model?: string;
+  reason?: string;
+  details?: Record<string, any>;
+  timestamp: string;
+}
+
+export interface MaIADashboardDTO {
+  active_provider: {
+    type: MaIAProviderType;
+    display_name: string;
+    project_id: string;
+    status: 'ACTIVE' | 'FALLBACK_ACTIVE' | 'DISABLED';
+    is_customer_project: boolean;
+  };
+  providers: Array<{
+    type: MaIAProviderType;
+    display_name: string;
+    project_id: string;
+    status: CredentialStatus;
+    is_active: boolean;
+    has_credentials: boolean;
+    masked_key: string;
+    capabilities: string[];
+    quota_status: QuotaStatus;
+    quota_percentage: number;
+  }>;
+  quota_semaphore: {
+    status: QuotaStatus;
+    percentage: number;
+    source: QuotaSource;
+    alert_message?: string;
+  };
+  quotas: ProviderQuotaReport;
+  usage: {
+    requests_today: number;
+    tokens_input_today: number;
+    tokens_output_today: number;
+    average_latency_ms: number;
+    errors_today: number;
+    rate_limits_429_today: number;
+    fallbacks_today: number;
+  };
+  costs: {
+    estimated_usd_today: number;
+    estimated_usd_month: number;
+    billing_owner: string;
+    currency: string;
+  };
+  fallback_policy: {
+    enabled: boolean;
+    chain: MaIAProviderType[];
+    last_fallback?: FallbackEvent;
+  };
+  limits: {
+    daily_usd: number;
+    monthly_usd: number;
+    max_rpm: number;
+    max_rpd: number;
+    warning_threshold: number;
+    critical_threshold: number;
+    exhausted_threshold: number;
+  };
 }
 
 export interface MaIAUsageMetrics {

@@ -15,7 +15,17 @@ import { generateRecommendedPlaylist } from './geminiService.js';
 import { sanitizeSvgContent } from './brandingUtils.js';
 import { authService, requireRole, enforceTenantIsolation } from './auth.js';
 import { logger } from './logger.js';
-import { maiaService, maiaQueueCaller, maiaConfigManager, maiaVoiceService } from './maia/index.js';
+import {
+  maiaService,
+  maiaQueueCaller,
+  maiaConfigManager,
+  maiaVoiceService,
+  maiaQuotaManager,
+  maiaFallbackManager,
+  aiCredentialManager,
+  aiAudit,
+  MaIADashboardDTO
+} from './maia/index.js';
 
 export const apiRouter = Router();
 
@@ -2059,5 +2069,294 @@ apiRouter.post('/maia/test-call', requireRole(['CONTROLLER', 'SUPERVISOR']), asy
     res.status(500).json({ success: false, error: 'Erro ao executar teste de chamada.' });
   }
 });
+
+// GET /api/v1/maia/dashboard - Visão consolidada de status, quotas, provedores e custos (Apenas Supervisor)
+apiRouter.get('/maia/dashboard', requireRole(['SUPERVISOR']), (req, res) => {
+  const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+  const config = maiaConfigManager.getConfig(establishmentId);
+  const metrics = maiaConfigManager.getMetrics(establishmentId);
+  const credentialsList = aiCredentialManager.getCredentialsList(establishmentId);
+  const quotaReport = maiaQuotaManager.getQuotaReport(establishmentId, config.active_provider);
+  const activeCred = aiCredentialManager.getCredential(establishmentId, config.active_provider);
+
+  const dashboard: MaIADashboardDTO = {
+    active_provider: {
+      type: config.active_provider,
+      display_name: activeCred?.display_name || (config.active_provider === 'gemini_customer' ? 'Meu projeto Gemini' : config.active_provider === '9router' ? '9router Gateway' : 'Gemini Enlace (Padrão)'),
+      project_id: activeCred?.project_id || (config.active_provider === 'gemini_enlace' ? 'enlace-ai-platform' : 'projeto-local'),
+      status: config.enabled ? 'ACTIVE' : 'DISABLED',
+      is_customer_project: config.active_provider === 'gemini_customer'
+    },
+    providers: credentialsList.map(c => ({
+      type: c.provider,
+      display_name: c.display_name,
+      project_id: c.project_id,
+      status: c.status,
+      is_active: c.provider === config.active_provider,
+      has_credentials: Boolean(c.masked_key && !c.masked_key.includes('Não configurada')),
+      masked_key: c.masked_key || '••••••••',
+      capabilities: c.allowed_tasks,
+      quota_status: c.provider === config.active_provider ? quotaReport.status : 'NORMAL',
+      quota_percentage: c.provider === config.active_provider ? quotaReport.overallPercentage : 0
+    })),
+    quota_semaphore: {
+      status: quotaReport.status,
+      percentage: quotaReport.overallPercentage,
+      source: quotaReport.rpm.source,
+      alert_message: quotaReport.warningAlert
+    },
+    quotas: quotaReport,
+    usage: {
+      requests_today: metrics.totalCalls,
+      tokens_input_today: metrics.tokensInput,
+      tokens_output_today: metrics.tokensOutput,
+      average_latency_ms: metrics.averageLatencyMs,
+      errors_today: metrics.failedCalls,
+      rate_limits_429_today: 0,
+      fallbacks_today: metrics.fallbackCalls
+    },
+    costs: {
+      estimated_usd_today: metrics.estimatedCostUsd,
+      estimated_usd_month: metrics.estimatedCostUsd * 20,
+      billing_owner: config.active_provider === 'gemini_customer' ? (activeCred?.project_id || 'Projeto do Cliente') : 'Enlace',
+      currency: 'USD'
+    },
+    fallback_policy: {
+      enabled: maiaFallbackManager.getConfig().enabled,
+      chain: maiaFallbackManager.getConfig().provider_chain,
+      last_fallback: maiaFallbackManager.getLastFallback()
+    },
+    limits: maiaQuotaManager.getLimits()
+  };
+
+  res.json({
+    success: true,
+    data: dashboard
+  });
+});
+
+// GET /api/v1/maia/credentials - Lista credenciais do estabelecimento (com chaves mascaradas)
+apiRouter.get('/maia/credentials', requireRole(['SUPERVISOR']), (req, res) => {
+  const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+  const list = aiCredentialManager.getCredentialsList(establishmentId);
+  res.json({
+    success: true,
+    data: list
+  });
+});
+
+// POST /api/v1/maia/credentials - Salva ou atualiza credencial de IA do estabelecimento
+apiRouter.post('/maia/credentials', requireRole(['SUPERVISOR']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { provider, apiKey, projectId, displayName, allowedTasks, allowedModels, priority } = req.body;
+
+    if (!provider) {
+      return res.status(400).json({ success: false, error: 'Provedor de IA é obrigatório.' });
+    }
+
+    const saved = await aiCredentialManager.saveCredential(establishmentId, {
+      provider,
+      apiKey,
+      projectId,
+      displayName,
+      allowedTasks,
+      allowedModels,
+      priority,
+      actorName: req.user?.actorName || 'Supervisor'
+    });
+
+    res.json({
+      success: true,
+      data: saved,
+      message: `Credencial de ${saved.display_name} salva com sucesso!`
+    });
+  } catch (err: any) {
+    logger.error('[API] Erro ao salvar credencial de IA:', err);
+    res.status(500).json({ success: false, error: 'Erro ao salvar credencial.' });
+  }
+});
+
+// POST /api/v1/maia/credentials/test - Testa conectividade com validação detalhada de 6 etapas
+apiRouter.post('/api/v1/maia/credentials/test', requireRole(['SUPERVISOR']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { provider, apiKey, projectId, gatewayUrl } = req.body;
+
+    if (!provider) {
+      return res.status(400).json({ success: false, error: 'Provedor para teste é obrigatório.' });
+    }
+
+    const validation = await aiCredentialManager.testCredential(establishmentId, {
+      provider,
+      apiKey,
+      projectId,
+      gatewayUrl
+    });
+
+    res.json({
+      success: true,
+      data: validation
+    });
+  } catch (err: any) {
+    logger.error('[API] Erro ao testar credencial:', err);
+    res.status(500).json({ success: false, error: 'Erro ao executar teste de credencial.' });
+  }
+});
+
+// POST /api/v1/maia/credentials/test (alias de rota para router relativo)
+apiRouter.post('/maia/credentials/test', requireRole(['SUPERVISOR']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { provider, apiKey, projectId, gatewayUrl } = req.body;
+
+    if (!provider) {
+      return res.status(400).json({ success: false, error: 'Provedor para teste é obrigatório.' });
+    }
+
+    const validation = await aiCredentialManager.testCredential(establishmentId, {
+      provider,
+      apiKey,
+      projectId,
+      gatewayUrl
+    });
+
+    res.json({
+      success: true,
+      data: validation
+    });
+  } catch (err: any) {
+    logger.error('[API] Erro ao testar credencial:', err);
+    res.status(500).json({ success: false, error: 'Erro ao executar teste de credencial.' });
+  }
+});
+
+// POST /api/v1/maia/credentials/activate - Ativa provedor como ativo para o lounge
+apiRouter.post('/maia/credentials/activate', requireRole(['SUPERVISOR']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { credentialId, provider } = req.body;
+
+    if (credentialId) {
+      const result = await aiCredentialManager.activateCredential(
+        establishmentId,
+        credentialId,
+        req.user?.actorName || 'Supervisor'
+      );
+
+      if (!result.success || !result.credential) {
+        return res.status(400).json({ success: false, error: result.error || 'Falha ao ativar credencial.' });
+      }
+
+      maiaConfigManager.updateConfig(establishmentId, { active_provider: result.credential.provider });
+
+      return res.json({
+        success: true,
+        data: result.credential,
+        message: `Provedor ${result.credential.display_name} ativado com sucesso!`
+      });
+    }
+
+    if (provider) {
+      maiaConfigManager.updateConfig(establishmentId, { active_provider: provider });
+      return res.json({
+        success: true,
+        message: `Provedor ${provider} ativado com sucesso!`
+      });
+    }
+
+    return res.status(400).json({ success: false, error: 'credentialId ou provider é obrigatório.' });
+  } catch (err: any) {
+    logger.error('[API] Erro ao ativar credencial:', err);
+    res.status(500).json({ success: false, error: 'Erro ao ativar provedor.' });
+  }
+});
+
+// DELETE /api/v1/maia/credentials/:id - Revoga e desativa credencial
+apiRouter.delete('/maia/credentials/:id', requireRole(['SUPERVISOR']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const credentialId = req.params.id;
+
+    const result = await aiCredentialManager.revokeCredential(
+      establishmentId,
+      credentialId,
+      req.user?.actorName || 'Supervisor'
+    );
+
+    if (!result.success) {
+      return res.status(400).json({ success: false, error: result.error });
+    }
+
+    res.json({
+      success: true,
+      message: 'Credencial revogada e desativada com sucesso.'
+    });
+  } catch (err: any) {
+    logger.error('[API] Erro ao revogar credencial:', err);
+    res.status(500).json({ success: false, error: 'Erro ao revogar credencial.' });
+  }
+});
+
+// GET /api/v1/maia/quota - Consulta semáforo de quotas e consumo
+apiRouter.get('/maia/quota', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
+  const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+  const config = maiaConfigManager.getConfig(establishmentId);
+  const quotaReport = maiaQuotaManager.getQuotaReport(establishmentId, config.active_provider);
+
+  res.json({
+    success: true,
+    data: quotaReport
+  });
+});
+
+// POST /api/v1/maia/quota/reset-rate-limit - Reseta estado de alerta 429
+apiRouter.post('/maia/quota/reset-rate-limit', requireRole(['SUPERVISOR']), (req, res) => {
+  maiaQuotaManager.resetRateLimitStatus();
+  res.json({
+    success: true,
+    message: 'Status de Rate Limit resetado com sucesso.'
+  });
+});
+
+// GET /api/v1/maia/fallback - Consulta política de fallback e histórico de eventos
+apiRouter.get('/maia/fallback', requireRole(['SUPERVISOR']), (req, res) => {
+  const config = maiaFallbackManager.getConfig();
+  const lastFallback = maiaFallbackManager.getLastFallback();
+  const history = maiaFallbackManager.getHistory(20);
+
+  res.json({
+    success: true,
+    data: {
+      config,
+      lastFallback,
+      history
+    }
+  });
+});
+
+// PUT /api/v1/maia/fallback - Atualiza política e cadeia de fallback
+apiRouter.put('/maia/fallback', requireRole(['SUPERVISOR']), (req, res) => {
+  const { enabled, provider_chain } = req.body;
+  maiaFallbackManager.updateConfig({ enabled, provider_chain });
+
+  res.json({
+    success: true,
+    data: maiaFallbackManager.getConfig(),
+    message: 'Política de fallback atualizada com sucesso.'
+  });
+});
+
+// GET /api/v1/maia/audit - Consulta histórico de auditoria de IA
+apiRouter.get('/maia/audit', requireRole(['SUPERVISOR']), (req, res) => {
+  const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+  const events = aiAudit.getEvents(establishmentId, 50);
+
+  res.json({
+    success: true,
+    data: events
+  });
+});
+
 
 

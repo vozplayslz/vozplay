@@ -651,6 +651,73 @@ async function runTests() {
     const rbacReply = (rbacChatData.data?.text || '').toLowerCase();
     await assert(!rbacReply.includes('supervisor concedido') && !rbacReply.includes('cancelando a fila'), 'MaIA rejeita tentativa de alterar permissões ou comandos administrativos');
 
+    // 23. Testando MAIA CORE — Orquestração de IA, Quotas, Credenciais, Fallback e Auditoria
+    console.log('\n23. Testando MAIA CORE — Orquestração, Quotas, Credenciais e Fallback...');
+
+    // 23.1 Dashboard Consolidado de IA
+    const dashRes = await fetch(`${BASE_URL}/api/v1/maia/dashboard`, {
+      headers: { 'Authorization': `Bearer ${supervisorToken}` }
+    });
+    const dashData = await dashRes.json();
+    await assert(dashRes.status === 200, 'Dashboard de IA da MaIA responde 200 OK');
+    await assert(Boolean(dashData.data?.active_provider), 'Dashboard identifica o provedor ativo');
+    await assert(Boolean(dashData.data?.quota_semaphore?.status), 'Dashboard contém semáforo de quotas');
+    await assert(Array.isArray(dashData.data?.providers), 'Dashboard lista provedores configurados');
+
+    // 23.2 Credenciais e Mascaramento Estrito (Zero Leak)
+    const credsRes = await fetch(`${BASE_URL}/api/v1/maia/credentials`, {
+      headers: { 'Authorization': `Bearer ${supervisorToken}` }
+    });
+    const credsData = await credsRes.json();
+    await assert(credsRes.status === 200, 'Endpoint de credenciais responde 200 OK');
+    await assert(Array.isArray(credsData.data), 'Lista de credenciais retornada com sucesso');
+    const hasRawSecret = JSON.stringify(credsData).includes('AIzaSy') && !JSON.stringify(credsData).includes('...');
+    await assert(!hasRawSecret, 'Credenciais NUNCA são expostas em texto puro (estritamente mascaradas)');
+
+    // 23.3 Testar Conexão com Validação em 6 Etapas
+    const testCredRes = await fetch(`${BASE_URL}/api/v1/maia/credentials/test`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supervisorToken}`
+      },
+      body: JSON.stringify({
+        provider: 'gemini_customer',
+        apiKey: 'AIzaSyFakeKeyForValidationTestOnly98765',
+        projectId: 'meu-projeto-karaoke'
+      })
+    });
+    const testCredData = await testCredRes.json();
+    await assert(testCredRes.status === 200, 'Endpoint de teste de conexão responde 200 OK');
+    await assert(Array.isArray(testCredData.data?.checks), 'Validação de conexão retorna array estruturado de checks');
+    await assert(testCredData.data?.checks.length >= 3, 'Validação de conexão cobre etapas detalhadas');
+
+    // 23.4 Semáforo de Quotas em Tempo Real
+    const quotaRes = await fetch(`${BASE_URL}/api/v1/maia/quota`, {
+      headers: { 'Authorization': `Bearer ${supervisorToken}` }
+    });
+    const quotaData = await quotaRes.json();
+    await assert(quotaRes.status === 200, 'Endpoint de quotas responde 200 OK');
+    await assert(quotaData.data?.status === 'NORMAL' || quotaData.data?.status === 'WARNING' || quotaData.data?.status === 'CRITICAL' || quotaData.data?.status === 'EXHAUSTED', 'Semáforo de quota retorna estado canônico válido');
+    await assert(typeof quotaData.data?.rpm?.limit === 'number', 'Métrica de RPM devidamente parametrizada');
+
+    // 23.5 Gestão da Cadeia de Fallback
+    const fallbackRes = await fetch(`${BASE_URL}/api/v1/maia/fallback`, {
+      headers: { 'Authorization': `Bearer ${supervisorToken}` }
+    });
+    const fallbackData = await fallbackRes.json();
+    await assert(fallbackRes.status === 200, 'Endpoint de fallback responde 200 OK');
+    await assert(fallbackData.data?.config?.enabled === true, 'Cadeia de fallback ativada por padrão para proteger o karaokê');
+    await assert(Array.isArray(fallbackData.data?.config?.provider_chain), 'Ordem de provedores definida na cadeia de fallback');
+
+    // 23.6 Auditoria e Registro de Eventos de IA
+    const auditRes = await fetch(`${BASE_URL}/api/v1/maia/audit`, {
+      headers: { 'Authorization': `Bearer ${supervisorToken}` }
+    });
+    const auditData = await auditRes.json();
+    await assert(auditRes.status === 200, 'Endpoint de auditoria de IA responde 200 OK');
+    await assert(Array.isArray(auditData.data), 'Histórico de eventos de IA retornado com sucesso');
+
     // Resumo Final
     console.log('\n================================================================');
     const total = results.length;
