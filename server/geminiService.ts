@@ -576,8 +576,8 @@ Gere um título criativo para a playlist, uma breve descrição entusiasmada, um
       source: 'gemini',
       generatedAt: new Date().toISOString(),
     };
-  } catch (error) {
-    console.error('[GeminiService] Erro ao consultar API Gemini, acionando fallback inteligente:', error);
+  } catch (error: any) {
+    console.warn('[GeminiService] API Gemini temporariamente indisponível, acionando fallback inteligente local:', error?.message || error);
     return buildFallbackPlaylist(cleanGenre, mood);
   }
 }

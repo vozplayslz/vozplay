@@ -144,7 +144,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
   const [participantMaiaMessages, setParticipantMaiaMessages] = useState<Array<{ role: 'user' | 'maia'; text: string; time: string }>>([
     {
       role: 'maia',
-      text: 'E aí! Eu sou a MaIA, a mestre de cerimônias do VozPlay! 🎤✨ Quer saber sua vez na fila, uma dica de ouro de tom ou escolher aquele hit pra levantar o bar? Manda aqui!',
+      text: 'E aí! Eu sou a MaIA Karaokê, a inteligência e mestre de cerimônias do VozPlay! 🎤✨ Quer saber sua vez na fila, uma dica de ouro de tom ou escolher aquele hit pra levantar o bar? Manda aqui!',
       time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -165,7 +165,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
         body: JSON.stringify({ message: text })
       });
       const data = await res.json();
-      const reply = data.success && data.data?.text ? data.data.text : 'No momento estou concentrada na transmissão do palco. Divirta-se cantando!';
+      const reply = data.success && data.data?.text ? data.data.text : 'No momento estou concentrada na animação do palco do VozPlay. Divirta-se cantando!';
       setParticipantMaiaMessages(prev => [...prev, {
         role: 'maia',
         text: reply,
@@ -174,7 +174,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
     } catch {
       setParticipantMaiaMessages(prev => [...prev, {
         role: 'maia',
-        text: 'Não consegui me conectar com a MaIA agora. Tente novamente em instantes.',
+        text: 'Não consegui me conectar com a MaIA Karaokê agora. Tente novamente em instantes.',
         time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       }]);
     } finally {
@@ -1533,13 +1533,13 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-lg sm:text-xl font-black text-white">MaIA — Assistente Vocal</h2>
+                    <h2 className="text-lg sm:text-xl font-black text-white">MaIA Karaokê</h2>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                      Voz Nativa pt-BR
+                      Mestre de Cerimônias Digital
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 mt-1 max-w-xl">
-                    Tire dúvidas sobre sua vez na fila, afinação, transposição de semitons e dicas para brilhar no palco.
+                    «MaIA Karaokê é a inteligência do VozPlay responsável por tornar a experiência de karaokê mais divertida, acolhedora, inteligente e fluida, auxiliando você no palco.»
                   </p>
                 </div>
               </div>
@@ -1593,7 +1593,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
               {/* Card Dicas Vocais */}
               <div className="p-5 rounded-3xl bg-[#0e1322]/90 border border-white/10 shadow-xl space-y-3">
                 <h3 className="text-xs font-black uppercase tracking-wider text-pink-300 flex items-center gap-2">
-                  <Mic2 className="w-4 h-4 text-pink-400" /> Dicas da MaIA para o Palco
+                  <Mic2 className="w-4 h-4 text-pink-400" /> Dicas da MaIA Karaokê para o Palco
                 </h3>
 
                 <div className="space-y-2 text-xs text-slate-300">
@@ -1619,9 +1619,9 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
             <div className="p-5 rounded-3xl bg-[#0e1322]/90 border border-white/10 shadow-xl flex flex-col justify-between space-y-4">
               <div className="flex items-center justify-between pb-2 border-b border-white/5">
                 <h3 className="text-xs font-black uppercase tracking-wider text-purple-300 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-purple-400" /> Converse com a MaIA
+                  <Sparkles className="w-4 h-4 text-purple-400" /> Converse com a MaIA Karaokê
                 </h3>
-                <span className="text-[10px] text-slate-500">Inteligência Artificial VozPlay</span>
+                <span className="text-[10px] text-slate-500">Mestre de Cerimônias VozPlay</span>
               </div>
 
               {/* Chat Message Box */}
@@ -1646,7 +1646,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
                 {isParticipantMaiaLoading && (
                   <div className="flex items-center gap-2 text-slate-400 text-xs italic">
                     <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-spin" />
-                    <span>MaIA pensando...</span>
+                    <span>MaIA Karaokê pensando...</span>
                   </div>
                 )}
               </div>
@@ -1679,7 +1679,7 @@ export const ParticipantView: React.FC<ParticipantViewProps> = ({
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleParticipantMaiaSend();
                     }}
-                    placeholder="Pergunte à MaIA sobre músicas, tom, fila..."
+                    placeholder="Pergunte à MaIA Karaokê sobre músicas, tom, fila..."
                     className="flex-1 px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
                   />
                   <button

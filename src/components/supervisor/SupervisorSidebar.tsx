@@ -54,7 +54,7 @@ export interface SupervisorMenuSection {
 
 export const SUPERVISOR_ITEMS_MAP: Record<SupervisorSectionId, { label: string; description: string; icon: React.ComponentType<{ className?: string }> }> = {
   OVERVIEW: { label: 'Sessão & Horários', description: 'Timer, prorrogações e status', icon: Clock },
-  MAIA: { label: 'Inteligência Vocal MaIA', description: 'Modelos, voz, custos & chamada', icon: Sparkles },
+  MAIA: { label: 'MaIA Karaokê', description: 'Modelos, voz, custos & chamada', icon: Sparkles },
   BRANDING: { label: 'Identidade Visual', description: 'Logo, cores, slogan & preview', icon: Palette },
   USERS: { label: 'Usuários & Senhas', description: 'Credenciais de Admin e Mesa', icon: Shield },
   CONTROLLER: { label: 'Controladores', description: 'Operadores de som & presença', icon: Users },
@@ -132,7 +132,7 @@ export const SupervisorSidebar: React.FC<SupervisorSidebarProps> = ({
       items: [
         {
           id: 'MAIA',
-          label: 'Inteligência Vocal MaIA',
+          label: 'MaIA Karaokê',
           description: 'Modelos, voz, custos & chamada',
           icon: Sparkles,
           badge: 'Nativa'

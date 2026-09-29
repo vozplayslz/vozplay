@@ -289,6 +289,128 @@ CREATE TABLE IF NOT EXISTS sound_effects (
 );
 
 -- ==========================================================
+-- 18. TABELAS PERSISTENTES DO MAIA KARAOKÊ (VozPlay AI Core)
+-- ==========================================================
+
+-- 18.1 Configuração Persistente da MaIA por Estabelecimento
+CREATE TABLE IF NOT EXISTS maia_config (
+    id VARCHAR(64) PRIMARY KEY,
+    establishment_id VARCHAR(64) UNIQUE NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    active_provider VARCHAR(32) NOT NULL DEFAULT 'gemini',
+    cost_tier VARCHAR(32) NOT NULL DEFAULT 'BALANCEADO',
+    models JSONB NOT NULL,
+    voice JSONB NOT NULL,
+    limits JSONB NOT NULL,
+    announce_queue_calls BOOLEAN NOT NULL DEFAULT TRUE,
+    announce_absences BOOLEAN NOT NULL DEFAULT TRUE,
+    announce_duets BOOLEAN NOT NULL DEFAULT TRUE,
+    tv_audio_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    fallback_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    fallback_chain JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_maia_config_est ON maia_config(establishment_id);
+
+-- 18.2 Credenciais e Projetos de IA (Cofre Cifrado)
+CREATE TABLE IF NOT EXISTS maia_credentials (
+    id VARCHAR(64) PRIMARY KEY,
+    tenant_id VARCHAR(64) NOT NULL,
+    establishment_id VARCHAR(64) NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
+    provider VARCHAR(32) NOT NULL,
+    credential_type VARCHAR(32) NOT NULL,
+    secret_reference TEXT NOT NULL,
+    project_id VARCHAR(128),
+    display_name VARCHAR(255) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+    allowed_tasks JSONB,
+    allowed_models JSONB,
+    priority INTEGER NOT NULL DEFAULT 1,
+    masked_key VARCHAR(32),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_validated_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_maia_cred_est ON maia_credentials(establishment_id, provider);
+
+-- 18.3 Histórico de Uso e Métricas de Chamadas
+CREATE TABLE IF NOT EXISTS maia_usage (
+    id VARCHAR(64) PRIMARY KEY,
+    establishment_id VARCHAR(64) NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    task VARCHAR(32) NOT NULL,
+    model VARCHAR(64) NOT NULL,
+    provider VARCHAR(32) NOT NULL,
+    latency_ms INTEGER NOT NULL DEFAULT 0,
+    tokens_input INTEGER NOT NULL DEFAULT 0,
+    tokens_output INTEGER NOT NULL DEFAULT 0,
+    cost_usd NUMERIC(10, 6) NOT NULL DEFAULT 0,
+    status VARCHAR(16) NOT NULL DEFAULT 'SUCCESS',
+    is_fallback BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_maia_usage_est_date ON maia_usage(establishment_id, date);
+
+-- 18.4 Quotas e Semáforo de Capacidade
+CREATE TABLE IF NOT EXISTS maia_quota (
+    id VARCHAR(64) PRIMARY KEY,
+    establishment_id VARCHAR(64) NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
+    provider VARCHAR(32) NOT NULL,
+    daily_usd_limit NUMERIC(10, 2) NOT NULL DEFAULT 15.00,
+    monthly_usd_limit NUMERIC(10, 2) NOT NULL DEFAULT 150.00,
+    max_rpm INTEGER NOT NULL DEFAULT 60,
+    warning_threshold INTEGER NOT NULL DEFAULT 70,
+    critical_threshold INTEGER NOT NULL DEFAULT 85,
+    exhausted_threshold INTEGER NOT NULL DEFAULT 95,
+    current_status VARCHAR(32) NOT NULL DEFAULT 'NORMAL',
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_maia_quota_est ON maia_quota(establishment_id, provider);
+
+-- 18.5 Configurações de Provedores e Gateways
+CREATE TABLE IF NOT EXISTS maia_provider_config (
+    id VARCHAR(64) PRIMARY KEY,
+    establishment_id VARCHAR(64) NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
+    provider VARCHAR(32) NOT NULL,
+    endpoint_url TEXT,
+    timeout_ms INTEGER NOT NULL DEFAULT 10000,
+    headers JSONB,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 18.6 Política de Fallback Resiliente
+CREATE TABLE IF NOT EXISTS maia_fallback_config (
+    id VARCHAR(64) PRIMARY KEY,
+    establishment_id VARCHAR(64) NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    provider_chain JSONB NOT NULL,
+    auto_recover BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 18.7 Auditoria de Eventos de IA e Decisões
+CREATE TABLE IF NOT EXISTS maia_ai_audit_events (
+    id VARCHAR(64) PRIMARY KEY,
+    actor VARCHAR(255) NOT NULL,
+    tenant_id VARCHAR(64) NOT NULL,
+    establishment_id VARCHAR(64) NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
+    event_type VARCHAR(64) NOT NULL,
+    provider VARCHAR(64) NOT NULL,
+    model VARCHAR(64),
+    reason TEXT,
+    details JSONB,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_maia_audit_est ON maia_ai_audit_events(establishment_id, timestamp DESC);
+
+-- ==========================================================
 -- SEED INICIAL DE SEGURANÇA E ESTABELECIMENTO PADRÃO
 -- ==========================================================
 INSERT INTO establishments (id, name, domain, unit_code, active)

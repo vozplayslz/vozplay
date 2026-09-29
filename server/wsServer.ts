@@ -15,7 +15,7 @@ import { db } from './db.js';
 import { WSEventType, WSMessage } from '../src/types.js';
 import { authService, UserRole } from './auth.js';
 import { logger } from './logger.js';
-import { maiaQueueCaller } from './maia/index.js';
+import { maiaQueueCaller, maiaEventEngine } from './maia/index.js';
 
 interface ClientConnection {
   id: string;
@@ -143,25 +143,35 @@ class VozPlayWSServer {
       const timeoutResult = await db.checkCallingTimeout();
       if (timeoutResult && timeoutResult.expired && timeoutResult.item) {
         if (timeoutResult.missedTurnCount === 1) {
-          maiaQueueCaller.handleFirstAbsence(
-            db.session.establishmentId,
-            timeoutResult.item.id,
-            timeoutResult.item.participantDisplayName,
-            timeoutResult.item.musicTitle,
-            timeoutResult.item.musicArtist,
-            timeoutResult.item
-          ).catch(e => logger.warn('[MaIA] Falha ao processar 1ª ausência:', e));
+          maiaEventEngine.handleEvent({
+            eventName: 'PARTICIPANT_MISSED',
+            establishmentId: db.session.establishmentId,
+            sessionId: db.session.id,
+            payload: {
+              queueItemId: timeoutResult.item.id,
+              participantDisplayName: timeoutResult.item.participantDisplayName,
+              musicTitle: timeoutResult.item.musicTitle,
+              musicArtist: timeoutResult.item.musicArtist,
+              queueItem: timeoutResult.item
+            },
+            timestamp: new Date().toISOString()
+          }).catch(e => logger.warn('[MaIA Event] Falha ao processar 1ª ausência:', e));
         } else if (timeoutResult.missedTurnCount === 2) {
           const nextSinger = db.queue.find(q => q.status === 'QUEUED')?.participantDisplayName;
-          maiaQueueCaller.handleSecondAbsence(
-            db.session.establishmentId,
-            timeoutResult.item.id,
-            timeoutResult.item.participantDisplayName,
-            timeoutResult.item.musicTitle,
-            timeoutResult.item.musicArtist,
-            nextSinger,
-            timeoutResult.item
-          ).catch(e => logger.warn('[MaIA] Falha ao processar 2ª ausência:', e));
+          maiaEventEngine.handleEvent({
+            eventName: 'PARTICIPANT_MOVED_TO_BACK',
+            establishmentId: db.session.establishmentId,
+            sessionId: db.session.id,
+            payload: {
+              queueItemId: timeoutResult.item.id,
+              participantDisplayName: timeoutResult.item.participantDisplayName,
+              musicTitle: timeoutResult.item.musicTitle,
+              musicArtist: timeoutResult.item.musicArtist,
+              nextSingerName: nextSinger,
+              queueItem: timeoutResult.item
+            },
+            timestamp: new Date().toISOString()
+          }).catch(e => logger.warn('[MaIA Event] Falha ao processar 2ª ausência:', e));
           this.broadcast('queue.item_requeued', { item: timeoutResult.item });
         }
         this.broadcastAuthoritativeState();

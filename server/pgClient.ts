@@ -286,6 +286,108 @@ export class DatabaseClient {
             triggered_by VARCHAR(255) NOT NULL,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
+
+        -- 14. Tabelas Persistentes do MaIA Karaokê (VozPlay AI Core)
+        CREATE TABLE IF NOT EXISTS maia_config (
+            id VARCHAR(64) PRIMARY KEY,
+            establishment_id VARCHAR(64) UNIQUE NOT NULL,
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            active_provider VARCHAR(32) NOT NULL DEFAULT 'gemini',
+            cost_tier VARCHAR(32) NOT NULL DEFAULT 'BALANCEADO',
+            models JSONB NOT NULL,
+            voice JSONB NOT NULL,
+            limits JSONB NOT NULL,
+            announce_queue_calls BOOLEAN NOT NULL DEFAULT TRUE,
+            announce_absences BOOLEAN NOT NULL DEFAULT TRUE,
+            announce_duets BOOLEAN NOT NULL DEFAULT TRUE,
+            tv_audio_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            fallback_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            fallback_chain JSONB,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS maia_credentials (
+            id VARCHAR(64) PRIMARY KEY,
+            tenant_id VARCHAR(64) NOT NULL,
+            establishment_id VARCHAR(64) NOT NULL,
+            provider VARCHAR(32) NOT NULL,
+            credential_type VARCHAR(32) NOT NULL,
+            secret_reference TEXT NOT NULL,
+            project_id VARCHAR(128),
+            display_name VARCHAR(255) NOT NULL,
+            status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+            allowed_tasks JSONB,
+            allowed_models JSONB,
+            priority INTEGER NOT NULL DEFAULT 1,
+            masked_key VARCHAR(32),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            last_validated_at TIMESTAMP WITH TIME ZONE
+        );
+
+        CREATE TABLE IF NOT EXISTS maia_usage (
+            id VARCHAR(64) PRIMARY KEY,
+            establishment_id VARCHAR(64) NOT NULL,
+            date DATE NOT NULL DEFAULT CURRENT_DATE,
+            task VARCHAR(32) NOT NULL,
+            model VARCHAR(64) NOT NULL,
+            provider VARCHAR(32) NOT NULL,
+            latency_ms INTEGER NOT NULL DEFAULT 0,
+            tokens_input INTEGER NOT NULL DEFAULT 0,
+            tokens_output INTEGER NOT NULL DEFAULT 0,
+            cost_usd NUMERIC(10, 6) NOT NULL DEFAULT 0,
+            status VARCHAR(16) NOT NULL DEFAULT 'SUCCESS',
+            is_fallback BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS maia_quota (
+            id VARCHAR(64) PRIMARY KEY,
+            establishment_id VARCHAR(64) NOT NULL,
+            provider VARCHAR(32) NOT NULL,
+            daily_usd_limit NUMERIC(10, 2) NOT NULL DEFAULT 15.00,
+            monthly_usd_limit NUMERIC(10, 2) NOT NULL DEFAULT 150.00,
+            max_rpm INTEGER NOT NULL DEFAULT 60,
+            warning_threshold INTEGER NOT NULL DEFAULT 70,
+            critical_threshold INTEGER NOT NULL DEFAULT 85,
+            exhausted_threshold INTEGER NOT NULL DEFAULT 95,
+            current_status VARCHAR(32) NOT NULL DEFAULT 'NORMAL',
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS maia_provider_config (
+            id VARCHAR(64) PRIMARY KEY,
+            establishment_id VARCHAR(64) NOT NULL,
+            provider VARCHAR(32) NOT NULL,
+            endpoint_url TEXT,
+            timeout_ms INTEGER NOT NULL DEFAULT 10000,
+            headers JSONB,
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS maia_fallback_config (
+            id VARCHAR(64) PRIMARY KEY,
+            establishment_id VARCHAR(64) NOT NULL,
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            provider_chain JSONB NOT NULL,
+            auto_recover BOOLEAN NOT NULL DEFAULT TRUE,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS maia_ai_audit_events (
+            id VARCHAR(64) PRIMARY KEY,
+            actor VARCHAR(255) NOT NULL,
+            tenant_id VARCHAR(64) NOT NULL,
+            establishment_id VARCHAR(64) NOT NULL,
+            event_type VARCHAR(64) NOT NULL,
+            provider VARCHAR(64) NOT NULL,
+            model VARCHAR(64),
+            reason TEXT,
+            details JSONB,
+            timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
       `);
 
       logger.info('Migrações do banco de dados concluídas com sucesso.');

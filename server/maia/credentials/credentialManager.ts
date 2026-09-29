@@ -418,6 +418,15 @@ class AICredentialManager {
       });
     }
 
+    const cleanValidationError = (() => {
+      if (!validation.error) return 'Erro desconhecido';
+      try {
+        const parsed = JSON.parse(validation.error);
+        if (parsed.error && parsed.error.message) return parsed.error.message;
+      } catch {}
+      return validation.error;
+    })();
+
     aiAudit.record({
       actor: 'Supervisor',
       tenant_id: establishmentId,
@@ -426,7 +435,7 @@ class AICredentialManager {
       provider,
       reason: validation.valid 
         ? `Validação de conexão com ${provider} concluída com sucesso.`
-        : `Validação de conexão com ${provider} falhou: ${validation.error || 'Erro desconhecido'}`
+        : `Validação de conexão com ${provider} não concluída: ${cleanValidationError}`
     });
 
     return validation;

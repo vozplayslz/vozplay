@@ -29,7 +29,7 @@ class AIModelRouter {
     }
 
     const provider = getAIProvider(providerType, establishmentId);
-    const model = config.models[taskType] || 'gemini-3.8-flash';
+    const model = (config.models as any)[taskType] || config.models.CHAT || 'gemini-3.8-flash';
 
     return {
       provider,

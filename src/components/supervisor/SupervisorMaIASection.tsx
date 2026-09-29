@@ -357,7 +357,7 @@ export const SupervisorMaIASection: React.FC<SupervisorMaIASectionProps> = ({ es
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-xl font-black text-white">MaIA — AI Orchestration Core</h2>
+              <h2 className="text-xl font-black text-white">MaIA Karaokê — Inteligência & Orquestração</h2>
               <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${config.enabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
                 {config.enabled ? 'ATIVA' : 'PAUSADA'}
               </span>
@@ -367,7 +367,7 @@ export const SupervisorMaIASection: React.FC<SupervisorMaIASectionProps> = ({ es
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              Roteamento de modelos, cofre de credenciais seguras, quotas em tempo real e fallback resiliente.
+              «MaIA Karaokê é a inteligência do VozPlay responsável por tornar a experiência de karaokê mais divertida, acolhedora, inteligente e fluida, sem assumir o controle determinístico do sistema.»
             </p>
           </div>
         </div>
@@ -385,7 +385,7 @@ export const SupervisorMaIASection: React.FC<SupervisorMaIASectionProps> = ({ es
             }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${config.enabled ? 'bg-white/10 hover:bg-white/15 text-slate-200' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
           >
-            {config.enabled ? 'Pausar MaIA' : 'Ativar MaIA'}
+            {config.enabled ? 'Pausar MaIA Karaokê' : 'Ativar MaIA Karaokê'}
           </button>
           <button
             onClick={loadAllData}

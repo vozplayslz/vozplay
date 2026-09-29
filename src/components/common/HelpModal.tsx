@@ -409,8 +409,11 @@ export const HelpModal: React.FC<HelpModalProps> = ({
 
                   <div className="p-4 rounded-2xl bg-[#111728] border border-cyan-500/30 space-y-2">
                     <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-2">
-                      <Cpu className="w-4 h-4 text-cyan-400" /> MaIA AI Orchestration Core & Semáforo de Quotas
+                      <Cpu className="w-4 h-4 text-cyan-400" /> MaIA Karaokê — Inteligência Especializada & Orquestração Core
                     </h4>
+                    <p className="text-xs text-purple-200/90 italic pb-1">
+                      «MaIA Karaokê é a inteligência do VozPlay responsável por tornar a experiência de karaokê mais divertida, acolhedora, inteligente e fluida, auxiliando participantes, operadores e supervisores sem assumir o controle determinístico do sistema.»
+                    </p>
                     <p className="text-xs text-slate-300 leading-relaxed">
                       - <strong>Provedor Padrão (Gemini Enlace):</strong> Toda nova instalação já funciona imediatamente com o Gemini Enlace ativo por padrão, sem custos iniciais ou configuração do cliente.<br />
                       - <strong>Meu Projeto Gemini:</strong> Conecte o projeto Google Cloud próprio do seu estabelecimento na aba <em>Provedores & Credenciais</em> para utilizar quotas exclusivas e faturamento direto com o Google.<br />

@@ -12,7 +12,9 @@ export type MaIATaskType =
   | 'REASONING'
   | 'TTS'
   | 'TRANSCRIPTION'
-  | 'MUSIC_ASSISTANCE';
+  | 'MUSIC_ASSISTANCE'
+  | 'EVENT_RESPONSE'
+  | 'QUEUE_ANNOUNCEMENT';
 
 export type MaIACostTier = 
   | 'ECONOMICO'
@@ -28,14 +30,66 @@ export type MaIAProviderType =
   | 'custom_gateway'
   | 'gemini'; // Alias para gemini_enlace
 
+export type VozPlayEventName =
+  | 'SESSION_STARTED'
+  | 'SESSION_PAUSED'
+  | 'SESSION_RESUMED'
+  | 'SESSION_ENDING'
+  | 'PARTICIPANT_JOINED'
+  | 'SONG_ADDED'
+  | 'SONG_REMOVED'
+  | 'QUEUE_UPDATED'
+  | 'PARTICIPANT_CALLED'
+  | 'PARTICIPANT_STARTED'
+  | 'PARTICIPANT_MISSED'
+  | 'PARTICIPANT_MOVED_TO_BACK'
+  | 'SONG_STARTED'
+  | 'SONG_FINISHED'
+  | 'QUEUE_EMPTY'
+  | 'CONTROLLER_CONNECTED'
+  | 'CONTROLLER_DISCONNECTED'
+  | 'TV_CONNECTED'
+  | 'TV_DISCONNECTED';
+
+export interface VozPlaySystemEvent {
+  eventName: VozPlayEventName;
+  establishmentId: string;
+  sessionId: string;
+  actorRole?: MaIAActorRole;
+  actorId?: string;
+  payload?: any;
+  timestamp: string;
+}
+
 export interface VoiceConfig {
   voice_provider: string; // 'gemini'
   voice_id: string; // 'Aoede' | 'Kore' | 'Puck'
   language: string; // 'pt-BR'
-  persona: string; // 'MaIA — Mestre de Cerimônias do VozPlay'
+  persona: string; // 'MaIA Karaokê — Mestre de Cerimônias do VozPlay'
   speed: number; // 0.8 a 1.2
   style: string; // 'animada' | 'acolhedora_profissional' | 'cerimoniosa'
   fallback_voice: string; // 'pt-BR-Standard-A'
+}
+
+export interface MaiaKaraokeIdentity {
+  id: string;
+  name: string;
+  displayName: string;
+  product: string;
+  version: string;
+  description: string;
+  mission: string;
+  personality: {
+    traits: string[];
+    toneAntiCorporate: boolean;
+    humorGuidelines: string;
+  };
+  capabilities: MaIATaskType[];
+  limitations: string[];
+  supportedRoles: MaIAActorRole[];
+  supportedEvents: VozPlayEventName[];
+  voiceProfile: VoiceConfig;
+  safetyRules: string[];
 }
 
 export interface MaIAModelMapping {
@@ -45,6 +99,8 @@ export interface MaIAModelMapping {
   TTS: string;
   TRANSCRIPTION: string;
   MUSIC_ASSISTANCE: string;
+  EVENT_RESPONSE?: string;
+  QUEUE_ANNOUNCEMENT?: string;
 }
 
 export interface MaIALimits {
@@ -126,9 +182,13 @@ export interface MaIAToolContext {
   actorId?: string;
 }
 
+export type MaIAToolCategory = 'READ' | 'ACTION' | 'HIGH_RISK' | 'CRITICAL';
+
 export interface MaIAToolDefinition {
   name: string;
   description: string;
+  category: MaIAToolCategory;
+  allowedRoles: MaIAActorRole[];
   parameters: Record<string, any>;
   execute: (context: MaIAToolContext, params: any) => Promise<any>;
 }

@@ -48,10 +48,22 @@ class Logger {
   }
 
   error(message: string, error?: any, context?: LogContext): void {
-    const errorDetails = error ? {
-      errorMessage: error?.message || String(error),
-      stack: error?.stack
-    } : {};
+    let errorMessage: string | undefined;
+    let stack: string | undefined;
+
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      stack = error.stack;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    } else if (error && typeof error === 'object') {
+      errorMessage = error.message || error.error || error.errorMessage || JSON.stringify(error);
+      if (error.stack) stack = String(error.stack);
+    } else if (error !== undefined) {
+      errorMessage = String(error);
+    }
+
+    const errorDetails = errorMessage ? { errorMessage, stack } : {};
     console.error(this.formatLog('ERROR', message, { ...context, ...errorDetails }));
   }
 

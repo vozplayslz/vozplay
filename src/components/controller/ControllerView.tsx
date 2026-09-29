@@ -84,7 +84,7 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
   const [maiaChatMessages, setMaiaChatMessages] = useState<Array<{ role: 'operator' | 'maia'; text: string; time: string }>>([
     {
       role: 'maia',
-      text: 'Olá, operador! Sou a MaIA, sua assistente vocal. Posso fazer comunicados falados no telão com voz brasileira ou responder dúvidas sobre a fila e operação.',
+      text: 'Olá, operador! Sou a MaIA Karaokê, inteligência e copilot da mesa de som. Posso fazer comunicados falados no telão com voz brasileira ou responder com agilidade sobre a fila e operação.',
       time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -101,13 +101,13 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
       });
       const data = await res.json();
       if (data.success) {
-        showFeedback('Aviso vocal da MaIA transmitido para o telão com sucesso!', 'success');
+        showFeedback('Aviso vocal da MaIA Karaokê transmitido para o telão com sucesso!', 'success');
         setMaiaCustomText('');
       } else {
-        showFeedback(data.error || 'Falha ao transmitir áudio da MaIA.', 'error');
+        showFeedback(data.error || 'Falha ao transmitir áudio da MaIA Karaokê.', 'error');
       }
     } catch {
-      showFeedback('Erro de conexão ao comunicar com a MaIA.', 'error');
+      showFeedback('Erro de conexão ao comunicar com a MaIA Karaokê.', 'error');
     } finally {
       setIsMaiaSpeaking(false);
     }
@@ -137,7 +137,7 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
     } catch {
       setMaiaChatMessages(prev => [...prev, {
         role: 'maia',
-        text: 'Erro de comunicação temporário com a MaIA.',
+        text: 'Erro de comunicação temporário com a MaIA Karaokê.',
         time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       }]);
     } finally {
@@ -912,13 +912,13 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-black text-white">Assistente MaIA — Copilot & Voz no Telão</h3>
+                  <h3 className="text-sm font-black text-white">MaIA Karaokê — Copilot & Voz no Telão</h3>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    Voz Feminina Ativa
+                    Mestre de Cerimônias
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Transmita avisos falados para o telão e consulte status operacional da fila em linguagem natural.
+                  Transmita comunicados falados no telão e consulte a inteligência da MaIA Karaokê em linguagem natural e objetiva.
                 </p>
               </div>
             </div>
@@ -961,7 +961,7 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
                 {/* Custom speech input */}
                 <div className="pt-2">
                   <label className="text-[11px] text-slate-400 block mb-1.5 font-medium">
-                    Aviso Personalizado (MaIA falará no telão):
+                    Aviso Personalizado (MaIA Karaokê falará no telão):
                   </label>
                   <div className="flex gap-2">
                     <input
@@ -1022,7 +1022,7 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
                 {isMaiaChatLoading && (
                   <div className="flex items-center gap-2 text-slate-400 text-xs italic">
                     <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-spin" />
-                    <span>MaIA consultando sistema...</span>
+                    <span>MaIA Karaokê consultando sistema...</span>
                   </div>
                 )}
               </div>
@@ -1054,7 +1054,7 @@ export const ControllerView: React.FC<ControllerViewProps> = ({ session, tvConne
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleMaiaChatSend();
                     }}
-                    placeholder="Pergunte à MaIA sobre a fila ou operação..."
+                    placeholder="Pergunte à MaIA Karaokê sobre a fila ou operação..."
                     className="flex-1 px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
                   />
                   <button

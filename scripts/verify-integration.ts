@@ -718,6 +718,141 @@ async function runTests() {
     await assert(auditRes.status === 200, 'Endpoint de auditoria de IA responde 200 OK');
     await assert(Array.isArray(auditData.data), 'Histórico de eventos de IA retornado com sucesso');
 
+    // 24. Testando MAIA KARAOKÊ V1.0 — Identidade, Autorização por Categoria de Tools e Event Engine
+    console.log('\n24. Testando MAIA KARAOKÊ V1.0 — Identidade, Autorização e Event Engine...');
+
+    // 24.1 Identidade Oficial e Single Source of Truth
+    const idRes = await fetch(`${BASE_URL}/api/v1/maia/identity`);
+    const idData = await idRes.json();
+    await assert(idRes.status === 200, 'Endpoint de identidade /api/v1/maia/identity responde 200 OK');
+    await assert(idData.data?.name === 'MaIA Karaokê', 'Nome oficial é estritamente "MaIA Karaokê"');
+    await assert(idData.data?.displayName === 'MaIA Karaokê', 'DisplayName configurado como "MaIA Karaokê"');
+    await assert(idData.data?.product === 'VozPlay', 'Produto configurado como "VozPlay"');
+    await assert(idData.data?.description?.includes('inteligência do VozPlay'), 'Descrição oficial reflete o papel da MaIA Karaokê no VozPlay');
+    await assert(idData.data?.capabilities?.includes('EVENT_RESPONSE') && idData.data?.capabilities?.includes('QUEUE_ANNOUNCEMENT'), 'Capacidades incluem EVENT_RESPONSE e QUEUE_ANNOUNCEMENT');
+    await assert(Array.isArray(idData.data?.supportedEvents) && idData.data?.supportedEvents?.includes('PARTICIPANT_CALLED'), 'Eventos suportados incluem ciclo de vida de karaokê');
+
+    // 24.2 Autorização READ para Participante (Consulta de fila e recomendações)
+    const readQueueRes = await fetch(`${BASE_URL}/api/v1/maia/tools/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${participantToken}`
+      },
+      body: JSON.stringify({
+        toolName: 'getCurrentQueue',
+        params: { limit: 5 }
+      })
+    });
+    const readQueueData = await readQueueRes.json();
+    await assert(readQueueRes.status === 200, 'Participante tem permissão para executar tool READ getCurrentQueue');
+    await assert(typeof readQueueData.data?.queueLength === 'number', 'Consulta de fila retorna métrica de tamanho');
+
+    const maiaRecRes = await fetch(`${BASE_URL}/api/v1/maia/tools/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${participantToken}`
+      },
+      body: JSON.stringify({
+        toolName: 'getMusicRecommendations',
+        params: { genre: 'Sertanejo', limit: 3 }
+      })
+    });
+    const maiaRecData = await maiaRecRes.json();
+    await assert(maiaRecRes.status === 200, 'Participante tem permissão para executar tool READ getMusicRecommendations');
+    await assert(Array.isArray(maiaRecData.data?.recommendations) && maiaRecData.data?.recommendations?.length > 0, 'Recomendações retornam acervo musical autêntico');
+
+    // 24.3 Bloqueio de Privacidade: Participante tentando consultar dados de outro participante
+    const privacyRes = await fetch(`${BASE_URL}/api/v1/maia/tools/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${participantToken}`
+      },
+      body: JSON.stringify({
+        toolName: 'getParticipantTurn',
+        params: { participantId: 'outro-participante-qualquer-123' }
+      })
+    });
+    await assert(privacyRes.status === 403, 'Participante tentando consultar vaga de outro participante é terminantemente bloqueado com 403 Forbidden');
+
+    // 24.4 Bloqueio de Ação Operacional (ACTION) e Alto Risco (HIGH_RISK) para Participante
+    const blockedActionRes = await fetch(`${BASE_URL}/api/v1/maia/tools/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${participantToken}`
+      },
+      body: JSON.stringify({
+        toolName: 'skipSong',
+        params: { reason: 'Tentativa indevida' }
+      })
+    });
+    await assert(blockedActionRes.status === 403, 'Participante tentando executar ação operacional skipSong é bloqueado com 403');
+
+    const blockedRiskRes = await fetch(`${BASE_URL}/api/v1/maia/tools/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${participantToken}`
+      },
+      body: JSON.stringify({
+        toolName: 'removeQueueItem',
+        params: { queueItemId: 'item-teste-qualquer' }
+      })
+    });
+    await assert(blockedRiskRes.status === 403, 'Participante tentando remover item de fila (HIGH_RISK) é bloqueado com 403');
+
+    // 24.5 Operador com Permissão de ACTION (broadcastAlert) e Bloqueio de CRITICAL (takeoverController)
+    const freshCtrlLoginRes = await fetch(`${BASE_URL}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'CONTROLLER', password: ctrlPass })
+    });
+    const freshCtrlData = await freshCtrlLoginRes.json();
+    const activeCtrlToken = freshCtrlData.token;
+
+    const ctrlAlertRes = await fetch(`${BASE_URL}/api/v1/maia/tools/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${activeCtrlToken}`
+      },
+      body: JSON.stringify({
+        toolName: 'broadcastAlert',
+        params: { message: 'Aviso teste do operador', title: 'AVISO OPERACIONAL' }
+      })
+    });
+    await assert(ctrlAlertRes.status === 200, 'Controlador pode executar ferramenta operacional ACTION (broadcastAlert)');
+
+    const ctrlTakeoverRes = await fetch(`${BASE_URL}/api/v1/maia/tools/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${activeCtrlToken}`
+      },
+      body: JSON.stringify({
+        toolName: 'takeoverController',
+        params: { reason: 'Tentativa não autorizada pelo controlador' }
+      })
+    });
+    await assert(ctrlTakeoverRes.status === 403, 'Controlador tentando executar CRITICAL takeoverController é bloqueado com 403 (restrito a Supervisor)');
+
+    // 24.6 Supervisor com Permissão CRITICAL (takeoverController)
+    const superTakeoverRes = await fetch(`${BASE_URL}/api/v1/maia/tools/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supervisorToken}`
+      },
+      body: JSON.stringify({
+        toolName: 'takeoverController',
+        params: { reason: 'Teste de validação de permissão de Supervisor' }
+      })
+    });
+    await assert(superTakeoverRes.status === 200, 'Supervisor tem permissão para executar ação CRITICAL (takeoverController)');
+
     // Resumo Final
     console.log('\n================================================================');
     const total = results.length;

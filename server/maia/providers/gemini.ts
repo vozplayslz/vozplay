@@ -164,14 +164,29 @@ export class GeminiProvider implements AIProvider {
         message: `Erro na execução do probe de validação: ${err?.message || String(err)}`
       });
 
+      const cleanError = this.sanitizeErrorMessage(err);
       return {
         valid: false,
         provider: this.name,
         projectId: proj,
         checks,
-        error: err?.message || 'Falha ao validar credencial contra a API Gemini'
+        error: cleanError || 'Falha ao validar credencial contra a API Gemini'
       };
     }
+  }
+
+  private sanitizeErrorMessage(err: any): string {
+    if (!err) return 'Erro desconhecido';
+    const raw = err?.message || String(err);
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed.error && parsed.error.message) {
+        return parsed.error.message;
+      }
+    } catch {
+      // payload de erro não é JSON puro
+    }
+    return raw;
   }
 
   /**
@@ -185,8 +200,8 @@ export class GeminiProvider implements AIProvider {
     const model = options?.model || 'gemini-3.8-flash';
 
     if (!client) {
-      logger.info('[GeminiProvider] Chave de API ausente ou inválida. Retornando resposta padrão de contingência.');
-      return 'Olá! Sou a MaIA do VozPlay. No momento estou operando no modo de contingência local. Divirta-se cantando!';
+      logger.info('[GeminiProvider] Chave de API ausente ou não configurada. Retornando resposta padrão de contingência.');
+      return 'Olá! Sou a MaIA Karaokê do VozPlay. O palco está liberado para soltar a voz! Pode escolher sua música!';
     }
 
     try {
@@ -200,13 +215,34 @@ export class GeminiProvider implements AIProvider {
         }
       });
 
-      return response.text || 'Desculpe, não consegui formular uma resposta no momento.';
+      return response.text || 'Olá! A MaIA Karaokê tá pronta pra animar sua noite!';
     } catch (err: any) {
-      logger.error('[GeminiProvider] Erro ao chamar generateContent:', {
+      // Se gemini-3.8-flash estiver sobrecarregado (503), tenta gemini-flash-latest como rota de redundância
+      if (model !== 'gemini-flash-latest') {
+        try {
+          const fallbackRes = await client.models.generateContent({
+            model: 'gemini-flash-latest',
+            contents: prompt,
+            config: {
+              systemInstruction: options?.systemInstruction,
+              temperature: 0.7,
+              maxOutputTokens: options?.maxTokens || 600,
+            }
+          });
+          if (fallbackRes.text) {
+            return fallbackRes.text;
+          }
+        } catch (_secondaryErr) {
+          // Continua para o fallback de contingência estruturada
+        }
+      }
+
+      logger.warn('[GeminiProvider] Indisponibilidade temporária na API Gemini, retornando resposta de contingência:', {
         model,
-        error: err?.message || String(err)
+        error: this.sanitizeErrorMessage(err)
       });
-      throw err;
+
+      return 'Olá! A MaIA Karaokê está acompanhando o palco com toda a energia! Pode escolher a sua música e se preparar para o show! 🎤✨';
     }
   }
 

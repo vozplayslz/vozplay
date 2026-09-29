@@ -18,13 +18,15 @@ import { logger } from './logger.js';
 import {
   maiaService,
   maiaQueueCaller,
+  maiaEventEngine,
   maiaConfigManager,
   maiaVoiceService,
   maiaQuotaManager,
   maiaFallbackManager,
   aiCredentialManager,
   aiAudit,
-  MaIADashboardDTO
+  MaIADashboardDTO,
+  MAIA_KARAOKE_IDENTITY
 } from './maia/index.js';
 
 export const apiRouter = Router();
@@ -1917,6 +1919,59 @@ apiRouter.post('/establishment/branding/reset', requireRole(['SUPERVISOR']), (re
 // ==========================================
 // 15. MAIA NATIVE AI (/api/v1/maia/*)
 // ==========================================
+
+// GET /api/v1/maia/identity - Consulta a identidade oficial, missão, personalidade e regras da MaIA Karaokê
+apiRouter.get('/maia/identity', (_req, res) => {
+  res.json({
+    success: true,
+    data: MAIA_KARAOKE_IDENTITY
+  });
+});
+
+// POST /api/v1/maia/tools/execute - Executa ferramenta autorizada da MaIA sob custódia do MaiaAuthorizationEngine
+apiRouter.post('/maia/tools/execute', async (req, res) => {
+  try {
+    const { toolName, params } = req.body;
+    if (!toolName || typeof toolName !== 'string') {
+      return res.status(400).json({ success: false, error: 'Nome da ferramenta é obrigatório.' });
+    }
+
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const actorRole = req.user?.role || 'PARTICIPANT';
+    const actorName = req.user?.actorName || 'Participante';
+
+    const result = await maiaService.executeTool(
+      {
+        establishmentId,
+        sessionId: db.session.id,
+        actorRole,
+        actorName,
+        actorId: req.user?.actorId
+      },
+      toolName,
+      params || {}
+    );
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (err: any) {
+    const isDenied = err.message && err.message.includes('[Acesso Negado MaIA]');
+    if (isDenied) {
+      logger.info(`[API] Acesso à tool bloqueado por política de segurança: ${err.message}`);
+      return res.status(403).json({
+        success: false,
+        error: err.message
+      });
+    }
+    logger.error('[API] Falha inesperada ao executar tool da MaIA:', err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Erro ao executar ferramenta da MaIA.'
+    });
+  }
+});
 
 // GET /api/v1/maia/config - Consulta configurações ativas da MaIA para o estabelecimento
 apiRouter.get('/maia/config', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {

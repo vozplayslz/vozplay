@@ -1128,7 +1128,7 @@ export const TVView: React.FC<TVViewProps> = ({
                       <span>{activeMaiaNotice.badge}</span>
                     </span>
                     <span className="text-xs font-mono text-purple-300/80 bg-purple-950/40 px-2.5 py-0.5 rounded-md border border-purple-500/20">
-                      Voz Feminina Nativa (pt-BR)
+                      MaIA Karaokê • Voz Oficial
                     </span>
                   </div>
 
@@ -1174,7 +1174,7 @@ export const TVView: React.FC<TVViewProps> = ({
           title="Clique para habilitar áudio automático das chamadas vocais"
         >
           <Volume2 className="w-3.5 h-3.5 text-purple-300" />
-          <span>Habilitar Áudio da MaIA</span>
+          <span>Habilitar Áudio da MaIA Karaokê</span>
         </button>
       )}
 

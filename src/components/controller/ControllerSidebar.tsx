@@ -89,10 +89,10 @@ export const ControllerSidebar: React.FC<ControllerSidebarProps> = ({
     },
     {
       id: 'MAIA' as ControllerSectionFilter,
-      label: 'Assistente MaIA',
-      description: 'Avisos no telão, voz & chat operacional',
+      label: 'MaIA Karaokê',
+      description: 'Avisos no telão, voz & copilot da mesa',
       icon: Sparkles,
-      badge: 'Voz IA',
+      badge: 'Mestre IA',
       badgeColor: 'bg-pink-500/20 text-pink-300 border-pink-500/30'
     },
     {

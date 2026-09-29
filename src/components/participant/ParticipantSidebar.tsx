@@ -250,7 +250,7 @@ export const ParticipantSidebar: React.FC<ParticipantSidebarProps> = ({
           <div className="flex items-center gap-3">
             <Sparkles className={`w-4 h-4 ${activeSubTab === 'MAIA' ? 'text-white animate-spin' : 'text-pink-400'}`} />
             <div className="text-left">
-              <span className="block leading-tight">Assistente MaIA</span>
+              <span className="block leading-tight">MaIA Karaokê</span>
               <span className={`text-[10px] block font-normal ${activeSubTab === 'MAIA' ? 'text-purple-100' : 'text-slate-500'}`}>
                 Minha vez, tom & dicas
               </span>
