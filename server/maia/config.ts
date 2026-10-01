@@ -65,7 +65,7 @@ export const DEFAULT_MAIA_VOICE: VoiceConfig = {
 
 export const DEFAULT_MAIA_CONFIG: MaIAConfig = {
   establishment_id: 'est-slz-lounge',
-  enabled: true,
+  enabled: process.env.MAIA_ENABLED !== 'false',
   active_provider: 'gemini',
   cost_tier: 'BALANCEADO',
   models: { ...COST_TIER_MODELS.BALANCEADO },

@@ -16,9 +16,30 @@ import { maiaConfigManager } from '../config.js';
 import { maiaQueueCaller } from '../services/maiaQueueCaller.js';
 import { maiaVoiceService } from '../services/maiaVoiceService.js';
 import { maiaTTSService } from '../tts.js';
+import { maiaEventBus } from '../core/events/eventBus.js';
 import { wsServer } from '../../wsServer.js';
 import { db } from '../../db.js';
 import { logger } from '../../logger.js';
+
+// Mapeamento para namespaces canônicos de eventos de domínio
+const CANONICAL_DOMAIN_EVENT_NAMES: Partial<Record<VozPlayEventName, string>> = {
+  PARTICIPANT_CALLED: 'karaoke.queue.participant_called',
+  PARTICIPANT_MISSED: 'karaoke.queue.participant_missed',
+  PARTICIPANT_MOVED_TO_BACK: 'karaoke.queue.moved_to_back',
+  SONG_FINISHED: 'karaoke.queue.song_finished',
+  SONG_STARTED: 'karaoke.playback.started',
+  SONG_ADDED: 'karaoke.queue.song_added',
+  SONG_REMOVED: 'karaoke.queue.song_removed',
+  SESSION_STARTED: 'karaoke.session.started',
+  SESSION_ENDING: 'karaoke.session.ending',
+  SESSION_PAUSED: 'karaoke.session.paused',
+  SESSION_RESUMED: 'karaoke.session.resumed',
+  QUEUE_EMPTY: 'karaoke.queue.empty',
+  TV_CONNECTED: 'karaoke.tv.connected',
+  TV_DISCONNECTED: 'karaoke.tv.disconnected',
+  CONTROLLER_CONNECTED: 'karaoke.controller.connected',
+  CONTROLLER_DISCONNECTED: 'karaoke.controller.disconnected'
+};
 
 // Cooldown em milissegundos por tipo de evento para evitar spam
 const EVENT_COOLDOWNS_MS: Partial<Record<VozPlayEventName, number>> = {
@@ -61,6 +82,26 @@ export class MaiaEventEngine {
     // Execução assíncrona desacoplada da thread principal
     setImmediate(async () => {
       try {
+        // Notifica o barramento de eventos universal do MaIA Core com namespace canônico
+        const canonicalName = CANONICAL_DOMAIN_EVENT_NAMES[event.eventName] || `karaoke.${event.eventName.toLowerCase()}`;
+        maiaEventBus.emit({
+          name: canonicalName,
+          tenantId: establishmentId,
+          source: 'MaiaEventEngine',
+          payload: event.payload
+        }).catch(() => {});
+
+        // Compatibilidade legada se o nome canônico for diferente
+        const legacyName = `karaoke.${event.eventName.toLowerCase()}`;
+        if (legacyName !== canonicalName) {
+          maiaEventBus.emit({
+            name: legacyName,
+            tenantId: establishmentId,
+            source: 'MaiaEventEngine',
+            payload: event.payload
+          }).catch(() => {});
+        }
+
         await this.processEventAction(event, establishmentId, config);
       } catch (err) {
         logger.error(`[MaiaEventEngine] Erro não-bloqueante ao processar evento '${event.eventName}':`, err);

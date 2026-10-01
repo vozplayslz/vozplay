@@ -57,10 +57,40 @@ class Logger {
     } else if (typeof error === 'string') {
       errorMessage = error;
     } else if (error && typeof error === 'object') {
-      errorMessage = error.message || error.error || error.errorMessage || JSON.stringify(error);
+      if (typeof error.message === 'string') {
+        errorMessage = error.message;
+      } else if (typeof error.errorMessage === 'string') {
+        errorMessage = error.errorMessage;
+      } else if (error.error) {
+        if (typeof error.error === 'string') {
+          errorMessage = error.error;
+        } else if (typeof error.error.message === 'string') {
+          errorMessage = error.error.message;
+        } else {
+          try {
+            errorMessage = JSON.stringify(error.error);
+          } catch {
+            errorMessage = String(error.error);
+          }
+        }
+      } else {
+        try {
+          errorMessage = JSON.stringify(error);
+        } catch {
+          errorMessage = String(error);
+        }
+      }
       if (error.stack) stack = String(error.stack);
     } else if (error !== undefined) {
       errorMessage = String(error);
+    }
+
+    if (errorMessage !== undefined && typeof errorMessage !== 'string') {
+      try {
+        errorMessage = JSON.stringify(errorMessage);
+      } catch {
+        errorMessage = String(errorMessage);
+      }
     }
 
     const errorDetails = errorMessage ? { errorMessage, stack } : {};

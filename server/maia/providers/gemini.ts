@@ -177,16 +177,27 @@ export class GeminiProvider implements AIProvider {
 
   private sanitizeErrorMessage(err: any): string {
     if (!err) return 'Erro desconhecido';
-    const raw = err?.message || String(err);
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed.error && parsed.error.message) {
-        return parsed.error.message;
+    if (typeof err === 'string') return err;
+    if (err.message && typeof err.message === 'string') {
+      try {
+        const parsed = JSON.parse(err.message);
+        if (parsed.error && parsed.error.message) {
+          return parsed.error.message;
+        }
+      } catch {
+        // payload de erro não é JSON puro
       }
-    } catch {
-      // payload de erro não é JSON puro
+      return err.message;
     }
-    return raw;
+    if (err.error) {
+      if (typeof err.error === 'string') return err.error;
+      if (err.error.message && typeof err.error.message === 'string') return err.error.message;
+    }
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
   }
 
   /**

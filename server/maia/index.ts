@@ -27,3 +27,5 @@ export * from './fallback/fallbackManager.js';
 export * from './credentials/credentialManager.js';
 export * from './audit/aiAudit.js';
 export * from './providers/index.js';
+export * from './core/index.js';
+export * from './karaokeBridge.js';

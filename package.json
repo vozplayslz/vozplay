@@ -10,7 +10,15 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx scripts/verify-integration.ts"
+    "test:core": "tsx scripts/verify-maia-core.ts",
+    "test:context": "tsx scripts/verify-context-engine.ts",
+    "test:tools": "tsx scripts/verify-tool-registry.ts",
+    "test:events": "tsx scripts/verify-event-bus-perception.ts",
+    "test:memory": "tsx scripts/verify-memory-engine.ts",
+    "test:router": "tsx scripts/verify-ai-router.ts",
+    "test:runtime": "tsx scripts/verify-agent-runtime.ts",
+    "test:integration": "tsx scripts/verify-integration.ts",
+    "test": "tsx scripts/verify-maia-core.ts && tsx scripts/verify-context-engine.ts && tsx scripts/verify-tool-registry.ts && tsx scripts/verify-event-bus-perception.ts && tsx scripts/verify-memory-engine.ts && tsx scripts/verify-ai-router.ts && tsx scripts/verify-agent-runtime.ts && tsx scripts/verify-integration.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -26,8 +26,10 @@ import {
   aiCredentialManager,
   aiAudit,
   MaIADashboardDTO,
-  MAIA_KARAOKE_IDENTITY
+  MAIA_KARAOKE_IDENTITY,
+  maiaAgentRuntime
 } from './maia/index.js';
+import { maiaMemoryService } from './maia/core/memory/index.js';
 
 export const apiRouter = Router();
 
@@ -2412,6 +2414,210 @@ apiRouter.get('/maia/audit', requireRole(['SUPERVISOR']), (req, res) => {
     data: events
   });
 });
+
+// ==========================================
+// MAIA MEMORY MANAGEMENT (/api/v1/maia/memories - FASE 06)
+// ==========================================
+
+// GET /api/v1/maia/memories - Consulta memórias registradas com filtros de segurança
+apiRouter.get('/maia/memories', requireRole(['SUPERVISOR']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { type, scope, limit, search } = req.query;
+
+    const result = await maiaMemoryService.retrieve({
+      tenantId: establishmentId,
+      types: type ? [type as any] : undefined,
+      scope: scope ? (scope as any) : undefined,
+      searchText: typeof search === 'string' ? search : undefined,
+      limit: limit ? Math.min(50, Number(limit)) : 20
+    });
+
+    res.json({
+      success: true,
+      data: result.items,
+      meta: {
+        totalMatches: result.totalMatches,
+        retrievalLatencyMs: result.retrievalLatencyMs,
+        estimatedTokens: result.estimatedTokens,
+        budgetApplied: result.budgetApplied,
+        fromFallback: result.fromFallback
+      }
+    });
+  } catch (err: any) {
+    logger.error('Erro ao consultar memórias da MaIA:', err);
+    res.status(500).json({ success: false, error: 'Erro ao consultar memórias.' });
+  }
+});
+
+// GET /api/v1/maia/memories/metrics - Métricas operacionais e telemetria da memória
+apiRouter.get('/maia/memories/metrics', requireRole(['SUPERVISOR']), (_req, res) => {
+  res.json({
+    success: true,
+    data: maiaMemoryService.getMetrics()
+  });
+});
+
+// DELETE /api/v1/maia/memories/:id - Remove item de memória específico (Direito de Exclusão / LGPD)
+apiRouter.delete('/maia/memories/:id', requireRole(['SUPERVISOR']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const memoryId = req.params.id;
+    const actor = req.user?.actorName || 'Supervisor';
+
+    const deleted = await maiaMemoryService.delete(establishmentId, memoryId, actor, 'Exclusão solicitada pelo supervisor');
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: 'Memória não encontrada para este estabelecimento.' });
+    }
+
+    res.json({ success: true, message: 'Item de memória removido com sucesso.' });
+  } catch (err: any) {
+    logger.error('Erro ao excluir item de memória:', err);
+    res.status(500).json({ success: false, error: 'Erro ao excluir memória.' });
+  }
+});
+
+// POST /api/v1/maia/memories/prune - Limpeza manual de memórias expiradas
+apiRouter.post('/maia/memories/prune', requireRole(['SUPERVISOR']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const prunedCount = await maiaMemoryService.pruneExpired(establishmentId);
+    res.json({ success: true, prunedCount, message: `Foram limpas ${prunedCount} memórias expiradas.` });
+  } catch (err: any) {
+    logger.error('Erro ao limpar memórias expiradas:', err);
+    res.status(500).json({ success: false, error: 'Erro ao limpar memórias.' });
+  }
+});
+
+// ==========================================
+// MAIA AGENT RUNTIME & TASKS (/api/v1/maia/tasks - FASE 08)
+// ==========================================
+
+// GET /api/v1/maia/tasks - Lista tarefas do agente para o estabelecimento
+apiRouter.get('/maia/tasks', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { status, limit } = req.query;
+
+    const tasks = maiaAgentRuntime.taskStore.list(establishmentId, {
+      status: status as any,
+      limit: limit ? Number(limit) : 50
+    });
+
+    res.json({ success: true, data: tasks });
+  } catch (err: any) {
+    logger.error('Erro ao listar tarefas do agente:', err);
+    res.status(500).json({ success: false, error: 'Erro ao listar tarefas.' });
+  }
+});
+
+// POST /api/v1/maia/tasks - Cria e executa uma nova tarefa do agente
+apiRouter.post('/maia/tasks', requireRole(['SUPERVISOR', 'CONTROLLER']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { goal, options } = req.body;
+
+    if (!goal || typeof goal !== 'string') {
+      return res.status(400).json({ success: false, error: 'O objetivo (goal) é obrigatório.' });
+    }
+
+    const task = await maiaAgentRuntime.createTask({
+      goal,
+      tenantId: establishmentId,
+      sessionId: req.user?.sessionId || db.session.id,
+      userId: req.user?.actorId,
+      actorRole: req.user?.role || 'CONTROLLER',
+      channel: 'web',
+      options
+    });
+
+    // Inicia a execução controlada
+    const executedTask = await maiaAgentRuntime.executeTask(task.id, establishmentId);
+
+    res.json({
+      success: true,
+      data: executedTask
+    });
+  } catch (err: any) {
+    logger.error('Erro ao criar tarefa do agente:', err);
+    res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Erro ao processar tarefa.' });
+  }
+});
+
+// GET /api/v1/maia/tasks/metrics - Telemetria e métricas do Agent Runtime
+apiRouter.get('/maia/tasks/metrics', requireRole(['SUPERVISOR']), (_req, res) => {
+  res.json({
+    success: true,
+    data: maiaAgentRuntime.getMetrics()
+  });
+});
+
+// GET /api/v1/maia/tasks/:id - Obtém detalhes de uma tarefa específica
+apiRouter.get('/maia/tasks/:id', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const task = maiaAgentRuntime.taskStore.get(req.params.id, establishmentId);
+
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Tarefa não encontrada.' });
+    }
+
+    res.json({ success: true, data: task });
+  } catch (err: any) {
+    logger.error('Erro ao buscar tarefa:', err);
+    res.status(500).json({ success: false, error: 'Erro ao buscar tarefa.' });
+  }
+});
+
+// POST /api/v1/maia/tasks/:id/confirm - Aprova ou rejeita solicitação de confirmação humana
+apiRouter.post('/maia/tasks/:id/confirm', requireRole(['SUPERVISOR', 'CONTROLLER']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const taskId = req.params.id;
+    const { confirmationId, decision, providedArguments, rejectionReason } = req.body;
+
+    if (!confirmationId || !['approved', 'rejected'].includes(decision)) {
+      return res.status(400).json({
+        success: false,
+        error: 'confirmationId e decision (approved | rejected) são obrigatórios.'
+      });
+    }
+
+    const task = await maiaAgentRuntime.confirmStep({
+      taskId,
+      confirmationId,
+      decision,
+      resolver: {
+        userId: req.user?.actorId || 'operator',
+        role: req.user?.role || 'CONTROLLER',
+        displayName: req.user?.actorName || 'Operador'
+      },
+      providedArguments,
+      rejectionReason
+    });
+
+    res.json({ success: true, data: task });
+  } catch (err: any) {
+    logger.error('Erro ao resolver confirmação da tarefa:', err);
+    res.status(err.statusCode || 400).json({ success: false, error: err.message || 'Erro ao processar confirmação.' });
+  }
+});
+
+// POST /api/v1/maia/tasks/:id/cancel - Cancela voluntariamente uma tarefa
+apiRouter.post('/maia/tasks/:id/cancel', requireRole(['SUPERVISOR', 'CONTROLLER']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { reason } = req.body;
+
+    const task = await maiaAgentRuntime.cancelTask(req.params.id, reason, establishmentId);
+    res.json({ success: true, data: task, message: 'Tarefa cancelada com sucesso.' });
+  } catch (err: any) {
+    logger.error('Erro ao cancelar tarefa:', err);
+    res.status(err.statusCode || 400).json({ success: false, error: err.message || 'Erro ao cancelar tarefa.' });
+  }
+});
+
+
 
 
 

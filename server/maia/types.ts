@@ -71,14 +71,28 @@ export interface VoiceConfig {
   fallback_voice: string; // 'pt-BR-Standard-A'
 }
 
+export interface MaiaProfile {
+  id: 'maia-karaoke';
+  name: 'MaIA';
+  product: 'MaIA Karaokê';
+  domain: 'karaoke';
+  gender: 'female';
+  tone: Array<'informal' | 'friendly' | 'humanized' | 'fun' | 'objective'>;
+  role: 'karaoke-host';
+  language: 'pt-BR';
+}
+
 export interface MaiaKaraokeIdentity {
   id: string;
   name: string;
+  assistantName?: string;
   displayName: string;
   product: string;
   version: string;
   description: string;
   mission: string;
+  profile?: MaiaProfile;
+  coreInstructions?: readonly string[];
   personality: {
     traits: string[];
     toneAntiCorporate: boolean;

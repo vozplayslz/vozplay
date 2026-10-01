@@ -27,6 +27,17 @@ class MaiaService {
     userMessage: string
   ): Promise<{ text: string; role: string; timestamp: string }> {
     const establishmentId = context.establishmentId;
+
+    // Se a MaIA estiver desativada pelo estabelecimento ou via MAIA_ENABLED=false, responde de forma silenciosa/amigável
+    const config = maiaConfigManager.getConfig(establishmentId);
+    if (!config.enabled) {
+      return {
+        text: 'A MaIA Karaokê está em repouso no momento. A mesa de som e a fila de karaokê continuam operando normalmente!',
+        role: 'maia',
+        timestamp: new Date().toISOString()
+      };
+    }
+
     const sanitizedInput = sanitizeAndWrapInput(userMessage, 'participant_prompt');
     const { provider, model } = aiModelRouter.resolveRoute(establishmentId, 'CHAT');
 

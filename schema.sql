@@ -410,6 +410,35 @@ CREATE TABLE IF NOT EXISTS maia_ai_audit_events (
 
 CREATE INDEX IF NOT EXISTS idx_maia_audit_est ON maia_ai_audit_events(establishment_id, timestamp DESC);
 
+-- 18.8 Memória da MaIA (FASE 06)
+CREATE TABLE IF NOT EXISTS maia_memories (
+    id VARCHAR(64) PRIMARY KEY,
+    type VARCHAR(32) NOT NULL,
+    scope VARCHAR(32) NOT NULL,
+    tenant_id VARCHAR(64) NOT NULL,
+    establishment_id VARCHAR(64) REFERENCES establishments(id) ON DELETE CASCADE,
+    user_id VARCHAR(64),
+    session_id VARCHAR(64),
+    content JSONB NOT NULL,
+    summary TEXT,
+    source VARCHAR(32) NOT NULL,
+    confidence NUMERIC(3, 2) NOT NULL DEFAULT 1.00,
+    importance INTEGER NOT NULL DEFAULT 3,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    version INTEGER NOT NULL DEFAULT 1,
+    previous_version_id VARCHAR(64),
+    updated_by VARCHAR(64),
+    metadata JSONB,
+    tags TEXT[]
+);
+
+CREATE INDEX IF NOT EXISTS idx_maia_memories_tenant ON maia_memories(tenant_id, type, scope);
+CREATE INDEX IF NOT EXISTS idx_maia_memories_session ON maia_memories(session_id);
+CREATE INDEX IF NOT EXISTS idx_maia_memories_user ON maia_memories(user_id);
+CREATE INDEX IF NOT EXISTS idx_maia_memories_expires ON maia_memories(expires_at);
+
 -- ==========================================================
 -- SEED INICIAL DE SEGURANÇA E ESTABELECIMENTO PADRÃO
 -- ==========================================================

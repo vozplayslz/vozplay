@@ -34,6 +34,8 @@ export interface VozPlayLogoProps {
   showBadge?: boolean;
   badgeText?: string;
   sublabel?: string;
+  brandTitle?: string;
+  brandSubtitle?: string;
   onClick?: () => void;
 }
 
@@ -511,7 +513,9 @@ export const VozPlayLogo: React.FC<VozPlayLogoProps> = ({
   colorMode = 'adaptive',
   textColor = 'default',
   showBadge = true,
-  badgeText = 'PRO',
+  badgeText = 'AI',
+  brandTitle = 'MaIA',
+  brandSubtitle = 'Karaokê',
   sublabel = 'vozplay.ai.slz.br',
   onClick
 }) => {
@@ -580,12 +584,12 @@ export const VozPlayLogo: React.FC<VozPlayLogoProps> = ({
       >
         <span
           style={{ color: palette.textVoz }}
-          className="drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)] transition-colors"
+          className="drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)] transition-colors mr-1"
         >
-          Voz
+          {brandTitle}
         </span>
         <span className={`${playColorClass} transition-colors`}>
-          Play
+          {brandSubtitle}
         </span>
       </div>
     );
@@ -609,9 +613,9 @@ export const VozPlayLogo: React.FC<VozPlayLogoProps> = ({
           themeMode={themeMode}
           colorMode={colorMode}
         />
-        <div className="flex items-center font-display font-black tracking-tight leading-none">
-          <span style={{ color: palette.textVoz }}>Voz</span>
-          <span className={playColorClass}>Play</span>
+        <div className="flex items-center font-display font-black tracking-tight leading-none gap-1">
+          <span style={{ color: palette.textVoz }}>{brandTitle}</span>
+          <span className={playColorClass}>{brandSubtitle}</span>
         </div>
       </div>
     );
@@ -640,15 +644,15 @@ export const VozPlayLogo: React.FC<VozPlayLogoProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-center font-display font-black tracking-tight">
+        <div className="flex items-center justify-center font-display font-black tracking-tight gap-1">
           <span
             style={{ color: palette.textVoz }}
             className={`${sizeConfig.text} drop-shadow-[0_2px_12px_rgba(0,0,0,0.35)] transition-colors`}
           >
-            Voz
+            {brandTitle}
           </span>
           <span className={`${sizeConfig.text} ${playColorClass} drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)] transition-colors`}>
-            Play
+            {brandSubtitle}
           </span>
           {showBadge && (
             <span
@@ -701,15 +705,15 @@ export const VozPlayLogo: React.FC<VozPlayLogoProps> = ({
           </div>
         </div>
 
-        <div className="flex items-baseline font-display font-black tracking-tight leading-none">
+        <div className="flex items-baseline font-display font-black tracking-tight leading-none gap-1">
           <span
             style={{ color: palette.textVoz }}
             className={`${sizeConfig.text} drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)] transition-colors`}
           >
-            Voz
+            {brandTitle}
           </span>
           <span className={`${sizeConfig.text} ${playColorClass} transition-colors`}>
-            Play
+            {brandSubtitle}
           </span>
           {showBadge && (
             <span

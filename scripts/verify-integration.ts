@@ -861,7 +861,8 @@ async function runTests() {
 
     console.log(`RESULTADO FINAL: ${passed}/${total} testes aprovados.`);
     if (failed > 0) {
-      console.error(`Atenção: ${failed} testes falharam.`);
+      console.error(`Atenção: ${failed} testes falharam:`);
+      results.filter(r => !r.passed).forEach(f => console.error(`  ❌ ${f.name} (${f.details || 'Sem detalhes'})`));
       process.exit(1);
     } else {
       console.log('✅ TODOS OS TESTES PASSARAM COM SUCESSO! BASE HOMOLOGADA.');

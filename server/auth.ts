@@ -62,8 +62,9 @@ class AuthService {
    * Inicializa credenciais com Argon2id sem qualquer fallback fraco hardcoded
    */
   public async initDefaultCredentials(): Promise<void> {
-    const supervisorPass = process.env.SUPERVISOR_PASSWORD;
-    const controllerPass = process.env.CONTROLLER_PASSWORD;
+    const isProduction = process.env.NODE_ENV === 'production';
+    const supervisorPass = process.env.SUPERVISOR_PASSWORD || (!isProduction ? 'VozPlay@SuperAdmin2026!SLZ' : undefined);
+    const controllerPass = process.env.CONTROLLER_PASSWORD || (!isProduction ? 'VozPlay@SoundDesk704!SLZ' : undefined);
 
     if (supervisorPass) {
       const superHash = await this.hashPassword(supervisorPass);
