@@ -28,6 +28,7 @@ import { VoiceSessionStore, voiceSessionStore } from './sessionStore.js';
 import { MaiaContextEngine, maiaContextEngine } from '../context/contextEngine.js';
 import { MaiaAgentRuntime, maiaAgentRuntime } from '../runtime/agentRuntime.js';
 import { MaiaToolRegistry, maiaToolRegistry } from '../tools/toolRegistry.js';
+import { MaiaToolExecutionContext } from '../tools/types.js';
 import { MaiaPolicyEngine, maiaPolicyEngine } from '../policy/policyEngine.js';
 import { MaiaEventBus, maiaEventBus } from '../events/eventBus.js';
 import { MaiaIdentityEngine, maiaIdentityEngine } from '../identity/identityEngine.js';
@@ -41,7 +42,6 @@ import {
   MaiaSecurityError,
   MaiaNotFoundError
 } from '../errors.js';
-import { db } from '../../../db.js';
 
 export interface MaiaVoiceManagerDependencies {
   voiceRouter?: MaiaVoiceRouter;
@@ -304,16 +304,30 @@ export class MaiaVoiceManager {
     ) {
       let realAnswer = 'Não há informações de fila disponíveis no momento.';
       try {
-        const activeQueue = (db.queue || []).filter(q => q.status === 'QUEUED' || q.status === 'CALLED');
-        const calling = (db.queue || []).find(q => q.status === 'CALLED');
-        const nextInLine = (db.queue || []).find(q => q.status === 'QUEUED');
+        const queueTool = this.toolRegistry.get('karaoke.queue.getStatus');
+        if (queueTool) {
+          const execCtx: MaiaToolExecutionContext = {
+            toolRequestId: 'req-voice-' + Date.now(),
+            correlationId: session.correlationId,
+            tenantId: session.tenantId,
+            sessionId: session.channel || 'voice-session',
+            actorId: session.userId || 'anon-voice',
+            actorRole: session.actorRole,
+            actorDisplayName: 'Operador de Voz',
+            permissions: ['queue.read']
+          };
+          const queueData = await queueTool.execute(execCtx, { limit: 10 });
+          const items = Array.isArray(queueData?.items) ? queueData.items : [];
+          const calling = items.find((q: any) => q.status === 'CALLED');
+          const nextInLine = items.find((q: any) => q.status === 'QUEUED');
 
-        if (calling) {
-          realAnswer = `O cantor da vez no palco é ${calling.participantDisplayName} cantando "${calling.musicTitle}".`;
-        } else if (nextInLine) {
-          realAnswer = `A fila possui ${activeQueue.length} ${activeQueue.length === 1 ? 'música' : 'músicas'}. O próximo cantor é ${nextInLine.participantDisplayName} cantando "${nextInLine.musicTitle}".`;
-        } else if (activeQueue.length === 0) {
-          realAnswer = 'A fila de karaokê está vazia no momento. Escolha uma música pelo catálogo para cantar!';
+          if (calling) {
+            realAnswer = `O cantor da vez no palco é ${calling.participantDisplayName} cantando "${calling.musicTitle}".`;
+          } else if (nextInLine) {
+            realAnswer = `A fila possui ${items.length} ${items.length === 1 ? 'música' : 'músicas'}. O próximo cantor é ${nextInLine.participantDisplayName} cantando "${nextInLine.musicTitle}".`;
+          } else if (items.length === 0) {
+            realAnswer = 'A fila de karaokê está vazia no momento. Escolha uma música pelo catálogo para cantar!';
+          }
         }
       } catch {
         realAnswer = 'Não foi possível consultar os dados da fila no momento.';

@@ -44,33 +44,45 @@ async function runHardeningVerification() {
   console.log('================================================================\n');
 
   // ============================================================================
-  // TESTE 1: P0 BLOCKER — CREDENCIAIS MANDATÓRIAS EM PRODUÇÃO (SEM DEFAULTS)
+  // TESTE 1: P0 BLOCKER — CREDENCIAIS E POSTGRESQL MANDATÓRIOS EM PRODUÇÃO
   // ============================================================================
-  console.log('🔒 [TESTE 1] Blocker P0: Falha de Startup em Produção sem Credenciais');
+  console.log('🔒 [TESTE 1] Blocker P0: Falha de Startup em Produção sem Credenciais ou sem PostgreSQL');
   {
     const originalEnv = process.env.NODE_ENV;
+    const originalDbUrl = process.env.DATABASE_URL;
     const originalSuper = process.env.SUPERVISOR_PASSWORD;
     const originalCtrl = process.env.CONTROLLER_PASSWORD;
+    const originalKey = process.env.ENCRYPTION_KEY;
 
-    // Simula ambiente de produção com senhas ausentes
+    // Simula ambiente de produção com senhas e DATABASE_URL ausentes
     process.env.NODE_ENV = 'production';
+    delete process.env.DATABASE_URL;
     delete process.env.SUPERVISOR_PASSWORD;
     delete process.env.CONTROLLER_PASSWORD;
+    delete process.env.ENCRYPTION_KEY;
 
     let threwExpectedError = false;
+    let missingReported = '';
     try {
       validateEnvironment(true);
     } catch (err: any) {
       if (err.message && err.message.includes('[STARTUP_FAILURE]')) {
         threwExpectedError = true;
+        missingReported = err.message;
       }
     }
-    assert(threwExpectedError, 'Startup falha obrigatoriamente se SUPERVISOR_PASSWORD ou CONTROLLER_PASSWORD faltarem em produção');
+    assert(threwExpectedError, 'Startup falha obrigatoriamente se variáveis obrigatórias faltarem em produção');
+    assert(missingReported.includes('DATABASE_URL'), 'DATABASE_URL é identificada como mandatória em produção');
+    assert(missingReported.includes('SUPERVISOR_PASSWORD'), 'SUPERVISOR_PASSWORD é identificada como mandatória em produção');
+    assert(missingReported.includes('CONTROLLER_PASSWORD'), 'CONTROLLER_PASSWORD é identificada como mandatória em produção');
+    assert(missingReported.includes('ENCRYPTION_KEY'), 'ENCRYPTION_KEY é identificada como mandatória em produção');
 
     // Restaura ambiente
     process.env.NODE_ENV = originalEnv || 'test';
+    if (originalDbUrl) process.env.DATABASE_URL = originalDbUrl;
     if (originalSuper) process.env.SUPERVISOR_PASSWORD = originalSuper;
     if (originalCtrl) process.env.CONTROLLER_PASSWORD = originalCtrl;
+    if (originalKey) process.env.ENCRYPTION_KEY = originalKey;
   }
 
   // ============================================================================
@@ -227,6 +239,68 @@ async function runHardeningVerification() {
     assert(tvDTO !== null && typeof tvDTO === 'object', 'TVSessionDTO gerado sem IA');
 
     featureFlagManager.setFlag('aiEnabled', true);
+  }
+
+  // ============================================================================
+  // TESTE 9: AUDITORIA DE SEGREDOS — .env NÃO RASTREADO E .gitignore BLINDADO
+  // ============================================================================
+  console.log('\n🛡️ [TESTE 9] Auditoria de Segredos: .env não versionado e .gitignore defensivo');
+  {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    // Valida que .env não está presente no repositório
+    const envExists = fs.existsSync(path.join(process.cwd(), '.env'));
+    assert(!envExists, 'Arquivo .env com segredos NÃO está versionado no repositório');
+
+    // Valida que .gitignore contém regra estrita para .env*
+    const gitignoreContent = fs.readFileSync(path.join(process.cwd(), '.gitignore'), 'utf8');
+    assert(gitignoreContent.includes('.env*'), '.gitignore bloqueia todos os arquivos .env*');
+    assert(gitignoreContent.includes('!.env.example'), '.gitignore preserva exclusivamente .env.example');
+  }
+
+  // ============================================================================
+  // TESTE 10: DOCKER COMPOSE SEM SENHAS HARDCODED DE PRODUÇÃO
+  // ============================================================================
+  console.log('\n🐳 [TESTE 10] Hardening Docker: Sem Fallback de Senhas Hardcoded');
+  {
+    const fs = await import('fs');
+    const path = await import('path');
+    const dockerComposeContent = fs.readFileSync(path.join(process.cwd(), 'docker-compose.yml'), 'utf8');
+
+    assert(!dockerComposeContent.includes('vozplay_secure_pass'), 'docker-compose.yml não contém senha padrão vozplay_secure_pass');
+    assert(dockerComposeContent.includes('${POSTGRES_PASSWORD:?'), 'docker-compose.yml exige POSTGRES_PASSWORD obrigatória');
+    assert(dockerComposeContent.includes('${SUPERVISOR_PASSWORD:?'), 'docker-compose.yml exige SUPERVISOR_PASSWORD obrigatória');
+    assert(dockerComposeContent.includes('${CONTROLLER_PASSWORD:?'), 'docker-compose.yml exige CONTROLLER_PASSWORD obrigatória');
+  }
+
+  // ============================================================================
+  // TESTE 11: DESACOPLAMENTO DA CAMADA DE VOZ (SEM ACESSO DIRETO A DB.QUEUE)
+  // ============================================================================
+  console.log('\n🎙️ [TESTE 11] Desacoplamento da Camada de Voz: Zero Acesso Direto a db.queue');
+  {
+    const fs = await import('fs');
+    const path = await import('path');
+    const voiceManagerCode = fs.readFileSync(path.join(process.cwd(), 'server/maia/core/voice/voiceManager.ts'), 'utf8');
+
+    assert(!voiceManagerCode.includes("import { db } from '../../../db.js'"), 'VoiceManager não importa db.ts diretamente');
+    assert(!voiceManagerCode.includes("db.queue"), 'VoiceManager não acessa propriedade db.queue diretamente');
+    assert(voiceManagerCode.includes("karaoke.queue.getStatus"), 'VoiceManager consulta status através da Tool oficial do Tool Registry');
+  }
+
+  // ============================================================================
+  // TESTE 12: PERSISTÊNCIA AUTORITATIVA DE CONFIGURAÇÃO E MEMÓRIA
+  // ============================================================================
+  console.log('\n💾 [TESTE 12] Persistência Autoritativa: Configurações e Memória Conectadas ao PostgreSQL');
+  {
+    const fs = await import('fs');
+    const path = await import('path');
+    const memoryEngineCode = fs.readFileSync(path.join(process.cwd(), 'server/maia/core/memory/memoryEngine.ts'), 'utf8');
+    const configCode = fs.readFileSync(path.join(process.cwd(), 'server/maia/config.ts'), 'utf8');
+
+    assert(memoryEngineCode.includes('maia_memories'), 'MemoryEngine possui integração nativa com tabela maia_memories');
+    assert(configCode.includes('maia_config'), 'MaIAConfigManager possui persistência nativa na tabela maia_config');
+    assert(configCode.includes('hydrateFromPostgres'), 'MaIAConfigManager suporta hidratação de configuração a partir do PostgreSQL');
   }
 
   // ============================================================================

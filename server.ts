@@ -20,6 +20,7 @@ import { logger } from './server/logger.js';
 import { authMiddleware, authService } from './server/auth.js';
 import { securityHeadersMiddleware } from './server/security/headers.js';
 import { validateEnvironment } from './server/envValidator.js';
+import { maiaConfigManager } from './server/maia/config.js';
 
 export { validateEnvironment };
 
@@ -83,9 +84,13 @@ async function startServer() {
   // Auth Middleware (Autenticação exclusivamente via Bearer Token)
   app.use(authMiddleware);
 
-  // Inicializa banco de dados e hidrata estado (PostgreSQL / In-Memory)
+  // Fluxo de Bootstrap Único e Sequencial (Prompt 14.2 - Seção 4):
+  // 1. Banco de dados e migrações (PostgreSQL / In-Memory em dev)
   await db.initDatabase();
+  // 2. Credenciais e autenticação operacional
   await authService.initDefaultCredentials();
+  // 3. Configurações persistentes da MaIA
+  await maiaConfigManager.hydrateFromPostgres();
 
   // Endpoint de Liveness (Requisito 28)
   const livenessHandler = (req: express.Request, res: express.Response) => {
@@ -101,28 +106,28 @@ async function startServer() {
   app.get('/api/liveness', livenessHandler);
   app.get('/api/health', livenessHandler);
 
-  // Endpoint de Readiness (Requisito 28)
+  // Endpoint de Readiness (Prompt 14.2 - Seções 3.2 e 2.3)
   const readinessHandler = async (req: express.Request, res: express.Response) => {
-    const isProd = process.env.NODE_ENV === 'production';
-    const dbReady = pgClient.isConnected || !process.env.DATABASE_URL;
-
-    if (!dbReady && isProd) {
+    // Se DATABASE_URL estiver configurada mas a conexão caiu, retorna 503
+    if (process.env.DATABASE_URL && !pgClient.isConnected) {
       return res.status(503).json({
         status: 'not_ready',
-        error: 'PostgreSQL indisponível em ambiente de produção',
+        error: 'PostgreSQL configurado está indisponível.',
         timestamp: new Date().toISOString()
       });
     }
 
     res.json({
       status: 'ready',
-      database: pgClient.isConnected ? 'postgresql_connected' : 'in_memory_ready',
+      database: pgClient.isConnected ? 'postgresql_connected' : 'in_memory_resilient',
       sessionActive: db.session.status === 'ACTIVE',
       timestamp: new Date().toISOString()
     });
   };
   app.get('/readiness', readinessHandler);
+  app.get('/ready', readinessHandler);
   app.get('/api/readiness', readinessHandler);
+  app.get('/api/ready', readinessHandler);
 
   // Mount versioned REST API
   app.use('/api/v1', apiRouter);

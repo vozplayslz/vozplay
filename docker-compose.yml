@@ -8,10 +8,10 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=${DATABASE_URL:-postgresql://vozplay_user:vozplay_secure_pass@db:5432/vozplay_db}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL é obrigatória para execução}
       - DOMAIN=${DOMAIN:-vozplay.ai.slz.br}
-      - SUPERVISOR_PASSWORD=${SUPERVISOR_PASSWORD}
-      - CONTROLLER_PASSWORD=${CONTROLLER_PASSWORD}
+      - SUPERVISOR_PASSWORD=${SUPERVISOR_PASSWORD:?SUPERVISOR_PASSWORD é obrigatória}
+      - CONTROLLER_PASSWORD=${CONTROLLER_PASSWORD:?CONTROLLER_PASSWORD é obrigatória}
       - SEED_DEMO=${SEED_DEMO:-false}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
     env_file:
@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-vozplay_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-vozplay_secure_pass}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD é obrigatória}
       - POSTGRES_DB=${POSTGRES_DB:-vozplay_db}
     expose:
       - "5432"

@@ -10,6 +10,7 @@
  */
 
 import { MaIAToolContext, MaIAToolDefinition, MaIAActorRole, MaIAToolCategory } from '../types.js';
+import { maiaPolicyEngine } from '../core/policy/policyEngine.js';
 import { aiAudit } from '../audit/aiAudit.js';
 import { db } from '../../db.js';
 import { logger } from '../../logger.js';

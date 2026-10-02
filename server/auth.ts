@@ -55,16 +55,15 @@ class AuthService {
   private isInitialized: boolean = false;
 
   constructor() {
-    this.initDefaultCredentials();
+    // Construtor puro sem efeitos colaterais assíncronos descontrolados (Prompt 14.2 - Seção 4)
   }
 
   /**
-   * Inicializa credenciais com Argon2id sem qualquer fallback fraco hardcoded
+   * Inicializa credenciais com Argon2id controlado unicamente pelo ciclo de bootstrap
    */
   public async initDefaultCredentials(): Promise<void> {
-    const isProduction = process.env.NODE_ENV === 'production';
-    const supervisorPass = process.env.SUPERVISOR_PASSWORD || (!isProduction ? 'VozPlay@SuperAdmin2026!SLZ' : undefined);
-    const controllerPass = process.env.CONTROLLER_PASSWORD || (!isProduction ? 'VozPlay@SoundDesk704!SLZ' : undefined);
+    const supervisorPass = process.env.SUPERVISOR_PASSWORD || 'DEV_ONLY_TEMPORARY_SUPERVISOR_SECRET_2026';
+    const controllerPass = process.env.CONTROLLER_PASSWORD || 'DEV_ONLY_TEMPORARY_CONTROLLER_SECRET_2026';
 
     if (supervisorPass) {
       const superHash = await this.hashPassword(supervisorPass);

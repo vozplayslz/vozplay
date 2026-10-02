@@ -7,6 +7,8 @@
  */
 
 import { MaIAConfig, MaIACostTier, MaIAModelMapping, MaIAUsageMetrics, VoiceConfig } from './types.js';
+import { pgClient } from '../pgClient.js';
+import { logger } from '../logger.js';
 
 // Mapeamentos de modelos por perfil de custo-benefício
 export const COST_TIER_MODELS: Record<MaIACostTier, MaIAModelMapping> = {
@@ -125,7 +127,65 @@ class MaIAConfigManager {
     };
 
     this.configs.set(establishmentId, updated);
+
+    // Persiste no PostgreSQL como fonte oficial de verdade (Prompt 14.2 - Seção 10)
+    if (pgClient.isConnected) {
+      pgClient.query(
+        `INSERT INTO maia_config (id, establishment_id, enabled, active_provider, cost_tier, models, voice, limits, announce_queue_calls, announce_absences, announce_duets, tv_audio_enabled, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+         ON CONFLICT (establishment_id) DO UPDATE SET
+           enabled = $3, active_provider = $4, cost_tier = $5, models = $6, voice = $7, limits = $8,
+           announce_queue_calls = $9, announce_absences = $10, announce_duets = $11, tv_audio_enabled = $12, updated_at = NOW()`,
+        [
+          `cfg-${establishmentId}`,
+          establishmentId,
+          updated.enabled,
+          updated.active_provider,
+          updated.cost_tier,
+          JSON.stringify(updated.models),
+          JSON.stringify(updated.voice),
+          JSON.stringify(updated.limits),
+          updated.announce_queue_calls,
+          updated.announce_absences,
+          updated.announce_duets,
+          updated.tv_audio_enabled
+        ]
+      ).catch((err) => {
+        logger.warn('[MaIAConfigManager] Erro ao sincronizar configuração com PostgreSQL:', { error: String(err) });
+      });
+    }
+
     return { ...updated };
+  }
+
+  /**
+   * Hidrata configurações a partir do PostgreSQL (Sobrevive a restarts e redeploys)
+   */
+  public async hydrateFromPostgres(establishmentId = 'est-slz-lounge'): Promise<void> {
+    if (!pgClient.isConnected) return;
+    try {
+      const res = await pgClient.query('SELECT * FROM maia_config WHERE establishment_id = $1', [establishmentId]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        const loaded: MaIAConfig = {
+          establishment_id: row.establishment_id,
+          enabled: row.enabled,
+          active_provider: row.active_provider,
+          cost_tier: row.cost_tier,
+          models: typeof row.models === 'string' ? JSON.parse(row.models) : row.models,
+          voice: typeof row.voice === 'string' ? JSON.parse(row.voice) : row.voice,
+          limits: typeof row.limits === 'string' ? JSON.parse(row.limits) : row.limits,
+          announce_queue_calls: row.announce_queue_calls,
+          announce_absences: row.announce_absences,
+          announce_duets: row.announce_duets,
+          tv_audio_enabled: row.tv_audio_enabled
+        };
+        this.configs.set(establishmentId, loaded);
+        logger.info(`[MaIAConfigManager] Configuração da MaIA hidratada do PostgreSQL para '${establishmentId}'.`);
+      }
+    } catch (err) {
+      logger.warn('[MaIAConfigManager] Erro ao hidratar configuração do PostgreSQL:', { error: String(err) });
+    }
   }
 
   public getMetrics(establishmentId = 'est-slz-lounge'): MaIAUsageMetrics {

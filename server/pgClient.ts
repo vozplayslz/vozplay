@@ -42,6 +42,7 @@ export class DatabaseClient {
    */
   async init(): Promise<boolean> {
     if (!this.pool) {
+      logger.info('DATABASE_URL não configurada no ambiente. Operando com armazenamento in-memory resiliente.');
       return false;
     }
 
@@ -60,7 +61,7 @@ export class DatabaseClient {
         client.release();
       }
     } catch (err) {
-      logger.warn('Falha ao conectar no PostgreSQL. Usando fallback em memória:', { error: String(err) });
+      logger.warn('Falha ao conectar no PostgreSQL. Usando armazenamento in-memory resiliente:', { error: String(err) });
       this.isConnected = false;
       return false;
     }
