@@ -82,6 +82,18 @@ export class AIQuotaTracker {
   }
 
   /**
+   * Valida se uma nova requisição é permitida sob as quotas vigentes retornando booleano
+   */
+  public canExecute(tenantId: string): { allowed: boolean; reason?: string } {
+    try {
+      this.assertCanExecute(tenantId);
+      return { allowed: true };
+    } catch (err: any) {
+      return { allowed: false, reason: err?.message || String(err) };
+    }
+  }
+
+  /**
    * Valida se uma nova requisição é permitida sob as quotas vigentes
    */
   public assertCanExecute(tenantId: string): void {

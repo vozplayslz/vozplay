@@ -15,9 +15,17 @@ import { aiAudit } from '../audit/aiAudit.js';
 import { GeminiProvider } from '../providers/gemini.js';
 import { RouterProvider } from '../providers/routerProvider.js';
 
-// Chave mestra de cofre (32 bytes) derivada do ambiente ou gerada para o ciclo de vida
-const ENCRYPTION_SECRET = process.env.ENCRYPTION_KEY || process.env.SUPERVISOR_PASSWORD || 'VozPlay-Enlace-Secure-MaIA-Secret-Vault-Key-32';
-const MASTER_KEY = crypto.createHash('sha256').update(ENCRYPTION_SECRET).digest();
+// Chave mestra de cofre (32 bytes) derivada do ambiente ou gerada estritamente para desenvolvimento
+function getMasterKey(): Buffer {
+  const secret = process.env.ENCRYPTION_KEY || process.env.SUPERVISOR_PASSWORD;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('[CRITICAL_SECURITY_ERROR] ENCRYPTION_KEY ou SUPERVISOR_PASSWORD é estritamente obrigatório para o cofre de credenciais em produção.');
+    }
+    return crypto.createHash('sha256').update('VozPlay-Enlace-Dev-Vault-Secret-32-Bytes-Only').digest();
+  }
+  return crypto.createHash('sha256').update(secret).digest();
+}
 
 /**
  * Criptografa segredo utilizando AES-256-GCM
@@ -25,7 +33,7 @@ const MASTER_KEY = crypto.createHash('sha256').update(ENCRYPTION_SECRET).digest(
 export function encryptSecret(plainText: string): string {
   if (!plainText) return '';
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', MASTER_KEY, iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', getMasterKey(), iv);
   let encrypted = cipher.update(plainText, 'utf8', 'hex');
   encrypted += cipher.final('hex');
   const authTag = cipher.getAuthTag().toString('hex');
@@ -41,7 +49,7 @@ export function decryptSecret(encryptedPayload: string): string {
     const parts = encryptedPayload.split(':');
     if (parts.length !== 3) return '';
     const [ivHex, authTagHex, encryptedHex] = parts;
-    const decipher = crypto.createDecipheriv('aes-256-gcm', MASTER_KEY, Buffer.from(ivHex, 'hex'));
+    const decipher = crypto.createDecipheriv('aes-256-gcm', getMasterKey(), Buffer.from(ivHex, 'hex'));
     decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
     let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
     decrypted += decipher.final('utf8');

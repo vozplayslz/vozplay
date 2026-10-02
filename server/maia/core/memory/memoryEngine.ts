@@ -60,6 +60,43 @@ export class InMemoryMaiaMemoryStore implements IMaiaMemoryStore {
     return turns.slice(-Math.min(limit, this.maxTurnsPerActor));
   }
 
+  public addConversationTurn(
+    tenantId: string,
+    sessionId: string,
+    actorId: string,
+    turn: { role: 'user' | 'maia'; content?: string; text?: string }
+  ): void {
+    const convKey = this.buildConversationKey(tenantId, sessionId, actorId);
+    let turns = this.conversationTurns.get(convKey);
+    if (!turns) {
+      turns = [];
+      this.conversationTurns.set(convKey, turns);
+    }
+
+    const textContent = turn.content || turn.text || '';
+    const turnRole: 'user' | 'assistant' | 'system' | 'tool' = turn.role === 'maia' ? 'assistant' : 'user';
+    turns.push({
+      role: turnRole,
+      text: textContent,
+      timestamp: new Date().toISOString()
+    });
+
+    if (turns.length > this.maxTurnsPerActor) {
+      turns.shift();
+    }
+  }
+
+  public getConversationTurnsSync(
+    tenantId: string,
+    sessionId: string,
+    actorId: string,
+    limit: number = 10
+  ): MaiaCoreConversationTurn[] {
+    const convKey = this.buildConversationKey(tenantId, sessionId, actorId);
+    const turns = this.conversationTurns.get(convKey) || [];
+    return turns.slice(-Math.min(limit, this.maxTurnsPerActor));
+  }
+
   public async appendConversationTurn(
     tenantId: string,
     sessionId: string,

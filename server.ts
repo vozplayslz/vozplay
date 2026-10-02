@@ -18,42 +18,10 @@ import { db } from './server/db.js';
 import { pgClient } from './server/pgClient.js';
 import { logger } from './server/logger.js';
 import { authMiddleware, authService } from './server/auth.js';
+import { securityHeadersMiddleware } from './server/security/headers.js';
+import { validateEnvironment } from './server/envValidator.js';
 
-// Validação e inicialização resiliente do ambiente de execução (Cloud Run / Local)
-function validateEnvironment() {
-  const isProd = process.env.NODE_ENV === 'production';
-  const isCloudRun = Boolean(process.env.K_SERVICE);
-
-  if (!process.env.DATABASE_URL) {
-    logger.info('[VozPlay Runtime] DATABASE_URL não definida no ambiente. Operando com armazenamento in-memory sincronizado de alta resiliência.');
-  }
-
-  // Em produção estrita (fora de Cloud Run preview), abortar se faltarem credenciais obrigatórias
-  if (isProd && !isCloudRun) {
-    const missing: string[] = [];
-    if (!process.env.SUPERVISOR_PASSWORD) missing.push('SUPERVISOR_PASSWORD');
-    if (!process.env.CONTROLLER_PASSWORD) missing.push('CONTROLLER_PASSWORD');
-
-    if (missing.length > 0) {
-      console.error('================================================================');
-      console.error('  [FALHA DE STARTUP EM PRODUÇÃO]');
-      console.error(`  Variáveis obrigatórias ausentes: ${missing.join(', ')}`);
-      console.error('  Configure-as no arquivo .env ou no orquestrador do container.');
-      console.error('================================================================');
-      process.exit(1);
-    }
-  } else if (!process.env.SUPERVISOR_PASSWORD || !process.env.CONTROLLER_PASSWORD) {
-    // Ambiente efêmero / desenvolvimento: utiliza credenciais padrão de desenvolvimento
-    if (!process.env.SUPERVISOR_PASSWORD) {
-      process.env.SUPERVISOR_PASSWORD = 'VozPlay@SuperAdmin2026!SLZ';
-      logger.info('[VozPlay Security] SUPERVISOR_PASSWORD não definida. Utilizando credencial padrão de desenvolvimento.');
-    }
-    if (!process.env.CONTROLLER_PASSWORD) {
-      process.env.CONTROLLER_PASSWORD = 'VozPlay@SoundDesk704!SLZ';
-      logger.info('[VozPlay Security] CONTROLLER_PASSWORD não definida. Utilizando credencial padrão de desenvolvimento.');
-    }
-  }
-}
+export { validateEnvironment };
 
 async function startServer() {
   validateEnvironment();
@@ -65,12 +33,8 @@ async function startServer() {
   app.use(express.json({ limit: '100kb' }));
   app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
-  // Headers de Segurança HTTP (Requisito 21)
-  app.use((req, res, next) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    next();
-  });
+  // Headers de Segurança HTTP Defensivos (HSTS, CSP, Permissions-Policy, nosniff)
+  app.use(securityHeadersMiddleware);
 
   // Rate Limiting em memória para rotas sensíveis (Requisito 22)
   const loginAttempts = new Map<string, { count: number; resetAt: number }>();

@@ -2,21 +2,47 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * MAIA AI MODEL ROUTER
- * Roteador central de inteligência artificial do VozPlay.
- * Decide qual modelo e provider utilizar com base na tarefa, quotas, tolerância a falhas e custo-benefício.
+ * MAIA AI MODEL ROUTER (ADAPTER CONSOLIDADO)
+ * Adaptador de compatibilidade que delega 100% das decisões de roteamento,
+ * modelos, circuit breaker e cotas ao MaiaAIRouter oficial (server/maia/core/router).
+ * 
+ * Regra Arquitetural (Prompt 14 - Seção 5):
+ * Única autoridade arquitetural: MaIA -> MaIA Core -> AI Router -> Provider Abstraction.
  */
 
 import { MaIATaskType, AIProvider, MaIAProviderType } from './types.js';
 import { maiaConfigManager } from './config.js';
 import { getAIProvider } from './providers/index.js';
+import { maiaAIRouter } from './core/router/aiRouter.js';
+import { AITask } from './core/router/types.js';
 import { maiaQuotaManager } from './quota/quotaManager.js';
 import { maiaFallbackManager } from './fallback/fallbackManager.js';
 import { logger } from '../logger.js';
 
 class AIModelRouter {
   /**
-   * Resolve o provedor e modelo ideais para uma tarefa específica
+   * Mapeia tarefa legada para AITask do Core
+   */
+  private mapTaskType(taskType: MaIATaskType): AITask {
+    switch (taskType) {
+      case 'CHAT':
+      case 'MUSIC_ASSISTANCE':
+      case 'EVENT_RESPONSE':
+        return 'conversation';
+      case 'LIVE_VOICE':
+      case 'TTS':
+      case 'REASONING':
+        return 'reasoning';
+      case 'TRANSCRIPTION':
+      case 'QUEUE_ANNOUNCEMENT':
+        return 'extraction';
+      default:
+        return 'conversation';
+    }
+  }
+
+  /**
+   * Resolve o provedor e modelo ideais para uma tarefa delegando ao MaiaAIRouter
    */
   public resolveRoute(
     establishmentId: string,
@@ -28,8 +54,16 @@ class AIModelRouter {
       providerType = 'gemini_enlace';
     }
 
+    // Consulta resolução no AI Router oficial
+    const coreTask = this.mapTaskType(taskType);
+    const resolution = maiaAIRouter.resolveRoute({
+      tenantId: establishmentId,
+      task: coreTask,
+      messages: [{ role: 'user', content: 'health_check' }]
+    });
+
+    const model = (config.models as any)[taskType] || resolution.modelId || 'gemini-3.8-flash';
     const provider = getAIProvider(providerType, establishmentId);
-    const model = (config.models as any)[taskType] || config.models.CHAT || 'gemini-3.8-flash';
 
     return {
       provider,
@@ -60,7 +94,7 @@ class AIModelRouter {
         const providerInstance = getAIProvider(providerType, params.establishmentId);
         const res = await params.action(providerInstance, route.model);
 
-        // Registra uso no quota manager
+        // Registra uso no quota manager e telemetria
         const latency = Date.now() - startTime;
         maiaQuotaManager.recordUsage({
           establishmentId: params.establishmentId,
@@ -77,13 +111,19 @@ class AIModelRouter {
   }
 
   /**
-   * Valida se os limites operacionais de custo e frequência foram atingidos
+   * Valida se os limites operacionais de custo e frequência foram atingidos via QuotaTracker
    */
   public checkLimits(establishmentId: string): { allowed: boolean; reason?: string } {
     const config = maiaConfigManager.getConfig(establishmentId);
 
     if (!config.enabled) {
       return { allowed: false, reason: 'MaIA está desativada para este estabelecimento.' };
+    }
+
+    // Valida no QuotaTracker oficial do AI Router
+    const trackerCheck = maiaAIRouter.quotaTracker.canExecute(establishmentId);
+    if (!trackerCheck.allowed) {
+      return { allowed: false, reason: trackerCheck.reason };
     }
 
     const quotaCheck = maiaQuotaManager.canExecute(establishmentId, 'CHAT', config.active_provider);

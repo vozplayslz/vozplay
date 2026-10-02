@@ -41,6 +41,7 @@ import {
   MaiaSecurityError,
   MaiaNotFoundError
 } from '../errors.js';
+import { db } from '../../../db.js';
 
 export interface MaiaVoiceManagerDependencies {
   voiceRouter?: MaiaVoiceRouter;
@@ -301,6 +302,23 @@ export class MaiaVoiceManager {
       lower.includes('status da fila') ||
       lower.includes('minha vez')
     ) {
+      let realAnswer = 'Não há informações de fila disponíveis no momento.';
+      try {
+        const activeQueue = (db.queue || []).filter(q => q.status === 'QUEUED' || q.status === 'CALLED');
+        const calling = (db.queue || []).find(q => q.status === 'CALLED');
+        const nextInLine = (db.queue || []).find(q => q.status === 'QUEUED');
+
+        if (calling) {
+          realAnswer = `O cantor da vez no palco é ${calling.participantDisplayName} cantando "${calling.musicTitle}".`;
+        } else if (nextInLine) {
+          realAnswer = `A fila possui ${activeQueue.length} ${activeQueue.length === 1 ? 'música' : 'músicas'}. O próximo cantor é ${nextInLine.participantDisplayName} cantando "${nextInLine.musicTitle}".`;
+        } else if (activeQueue.length === 0) {
+          realAnswer = 'A fila de karaokê está vazia no momento. Escolha uma música pelo catálogo para cantar!';
+        }
+      } catch {
+        realAnswer = 'Não foi possível consultar os dados da fila no momento.';
+      }
+
       return {
         rawTranscript: transcription,
         sanitizedText: sanitized,
@@ -310,7 +328,7 @@ export class MaiaVoiceManager {
         requiresConfirmation: false,
         riskLevel: 'READ',
         confidence: 0.95,
-        directAnswer: 'A fila está ativa! O próximo cantor é o Roberto cantando Evidências.'
+        directAnswer: realAnswer
       };
     }
 
@@ -336,7 +354,7 @@ export class MaiaVoiceManager {
         riskLevel: 'ACTION',
         confidence: 0.92,
         taskId: task.id,
-        directAnswer: 'Chamando o próximo cantor para o palco agora!'
+        directAnswer: 'Tarefa registrada para chamar o próximo cantor. Aguardando execução pelo controlador de mesa.'
       };
     }
 
