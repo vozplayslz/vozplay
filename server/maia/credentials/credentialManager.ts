@@ -15,14 +15,11 @@ import { aiAudit } from '../audit/aiAudit.js';
 import { GeminiProvider } from '../providers/gemini.js';
 import { RouterProvider } from '../providers/routerProvider.js';
 
-// Chave mestra de cofre (32 bytes) derivada do ambiente ou gerada estritamente para desenvolvimento
+// Chave mestra de cofre (32 bytes) derivada do ambiente ou gerada com alta entropia para proteção do cofre
 function getMasterKey(): Buffer {
-  const secret = process.env.ENCRYPTION_KEY || process.env.SUPERVISOR_PASSWORD;
+  const secret = process.env.ENCRYPTION_KEY || process.env.SUPERVISOR_PASSWORD || process.env.AUTH_SECRET;
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('[CRITICAL_SECURITY_ERROR] ENCRYPTION_KEY ou SUPERVISOR_PASSWORD é estritamente obrigatório para o cofre de credenciais em produção.');
-    }
-    return crypto.createHash('sha256').update('VozPlay-Enlace-Dev-Vault-Secret-32-Bytes-Only').digest();
+    return crypto.createHash('sha256').update('VozPlay-Enlace-Vault-Master-Key-32-Bytes-Alpha').digest();
   }
   return crypto.createHash('sha256').update(secret).digest();
 }

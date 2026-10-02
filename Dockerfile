@@ -22,6 +22,7 @@ RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/schema.sql ./schema.sql
+COPY --from=builder /app/.env* ./
 
 # Execução segura com usuário não-root (node / uid 1000)
 RUN chown -R node:node /app

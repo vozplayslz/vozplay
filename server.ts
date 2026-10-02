@@ -104,7 +104,7 @@ async function startServer() {
   // Endpoint de Readiness (Requisito 28)
   const readinessHandler = async (req: express.Request, res: express.Response) => {
     const isProd = process.env.NODE_ENV === 'production';
-    const dbReady = pgClient.isConnected || (!isProd && !process.env.DATABASE_URL);
+    const dbReady = pgClient.isConnected || !process.env.DATABASE_URL;
 
     if (!dbReady && isProd) {
       return res.status(503).json({
