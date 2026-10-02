@@ -28,10 +28,13 @@ import {
   MaiaAgentToolNotFoundError
 } from './errors.js';
 
-// Lista explícita de ferramentas terminantemente proibidas no ecossistema (Seção 29)
+// Lista explícita de ferramentas terminantemente proibidas no ecossistema (Fase 11 / Menor Privilégio)
 export const FORBIDDEN_TOOL_NAMES = new Set([
   'executeshell',
   'executesql',
+  'execute_sql',
+  'raw_sql',
+  'database_query',
   'runpython',
   'runjavascript',
   'dockerexec',
@@ -40,7 +43,17 @@ export const FORBIDDEN_TOOL_NAMES = new Set([
   'eval',
   'bash',
   'sh',
-  'cmd'
+  'zsh',
+  'cmd',
+  'powershell',
+  'python',
+  'python3',
+  'node',
+  'docker',
+  'kubectl',
+  'ssh',
+  'sudo',
+  'su'
 ]);
 
 export interface MaiaPlannerDependencies {

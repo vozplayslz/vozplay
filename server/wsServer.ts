@@ -15,7 +15,7 @@ import { db } from './db.js';
 import { WSEventType, WSMessage } from '../src/types.js';
 import { authService, UserRole } from './auth.js';
 import { logger } from './logger.js';
-import { maiaQueueCaller, maiaEventEngine } from './maia/index.js';
+import { maiaQueueCaller, maiaEventEngine, maiaCoreVoiceManager } from './maia/index.js';
 
 interface ClientConnection {
   id: string;
@@ -27,6 +27,7 @@ interface ClientConnection {
   sessionId: string;
   participantId?: string;
   token?: string;
+  voiceSessionId?: string;
   isAuthenticated: boolean;
   isAlive: boolean;
   ip: string;
@@ -94,6 +95,10 @@ class VozPlayWSServer {
           db.tvConnected = false;
           this.broadcast('tv.disconnected', { message: 'TV foi desconectada' });
           db.addNotification('tv_disconnected', 'TV Desconectada', 'A TV de reprodução perdeu a conexão com o servidor.', 'warning');
+        }
+        if (conn.voiceSessionId) {
+          maiaCoreVoiceManager.endSession(conn.voiceSessionId, conn.establishmentId).catch(() => {});
+          conn.voiceSessionId = undefined;
         }
         this.clients.delete(conn);
       });
@@ -324,6 +329,107 @@ class VozPlayWSServer {
             participantId: conn.participantId,
             timestamp: new Date().toISOString()
           });
+        }
+        break;
+      }
+
+      // ==========================================
+      // MAIA VOICE & REALTIME STREAMING (FASE 09)
+      // ==========================================
+      case 'voice.start_session': {
+        try {
+          const config = {
+            tenantId: conn.establishmentId,
+            sessionId: conn.sessionId,
+            userId: conn.actorId,
+            actorRole: conn.role,
+            channel: (conn.role === 'TV' ? 'tv' : conn.role === 'CONTROLLER' ? 'controller' : 'web') as any,
+            profile: msg.profile || 'BALANCEADO',
+            allowBargeIn: msg.allowBargeIn !== false
+          };
+          const voiceSession = await maiaCoreVoiceManager.startSession(config);
+          conn.voiceSessionId = voiceSession.id;
+          conn.ws.send(JSON.stringify({
+            event: 'voice.session_started',
+            payload: voiceSession,
+            timestamp: new Date().toISOString()
+          }));
+        } catch (err: any) {
+          conn.ws.send(JSON.stringify({
+            event: 'voice.error',
+            payload: { error: err.message || 'Falha ao iniciar sessão de voz' },
+            timestamp: new Date().toISOString()
+          }));
+        }
+        break;
+      }
+
+      case 'voice.chunk': {
+        if (conn.voiceSessionId && msg.data) {
+          try {
+            await maiaCoreVoiceManager.sendAudio(conn.voiceSessionId, {
+              data: msg.data,
+              format: msg.format || 'wav',
+              sampleRate: msg.sampleRate || 24000,
+              channels: msg.channels || 1,
+              isFinal: Boolean(msg.isFinal),
+              timestamp: Date.now()
+            }, conn.establishmentId);
+          } catch (err: any) {
+            conn.ws.send(JSON.stringify({
+              event: 'voice.error',
+              payload: { error: err.message },
+              timestamp: new Date().toISOString()
+            }));
+          }
+        }
+        break;
+      }
+
+      case 'voice.text': {
+        if (conn.voiceSessionId && msg.text) {
+          try {
+            await maiaCoreVoiceManager.sendText(conn.voiceSessionId, String(msg.text), conn.establishmentId);
+          } catch (err: any) {
+            conn.ws.send(JSON.stringify({
+              event: 'voice.error',
+              payload: { error: err.message },
+              timestamp: new Date().toISOString()
+            }));
+          }
+        }
+        break;
+      }
+
+      case 'voice.interrupt': {
+        if (conn.voiceSessionId) {
+          try {
+            await maiaCoreVoiceManager.interrupt(conn.voiceSessionId, conn.establishmentId);
+            conn.ws.send(JSON.stringify({
+              event: 'voice.interrupted',
+              payload: { sessionId: conn.voiceSessionId },
+              timestamp: new Date().toISOString()
+            }));
+          } catch (err: any) {
+            logger.warn('[MaiaVoice] Erro ao interromper sessão de voz:', err);
+          }
+        }
+        break;
+      }
+
+      case 'voice.end_session': {
+        if (conn.voiceSessionId) {
+          try {
+            const ended = await maiaCoreVoiceManager.endSession(conn.voiceSessionId, conn.establishmentId);
+            conn.voiceSessionId = undefined;
+            conn.ws.send(JSON.stringify({
+              event: 'voice.session_ended',
+              payload: ended,
+              timestamp: new Date().toISOString()
+            }));
+          } catch (err: any) {
+            logger.warn('[MaiaVoice] Erro ao encerrar sessão de voz:', err);
+          }
         }
         break;
       }

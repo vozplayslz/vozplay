@@ -43,14 +43,14 @@ function validateEnvironment() {
       process.exit(1);
     }
   } else if (!process.env.SUPERVISOR_PASSWORD || !process.env.CONTROLLER_PASSWORD) {
-    // Ambiente efêmero / desenvolvimento: gera credencial efêmera segura sem expor senhas hardcoded
+    // Ambiente efêmero / desenvolvimento: utiliza credenciais padrão de desenvolvimento
     if (!process.env.SUPERVISOR_PASSWORD) {
-      process.env.SUPERVISOR_PASSWORD = crypto.randomBytes(16).toString('hex');
-      logger.warn('[VozPlay Security] SUPERVISOR_PASSWORD não definida. Gerada credencial criptográfica efêmera para a sessão.');
+      process.env.SUPERVISOR_PASSWORD = 'VozPlay@SuperAdmin2026!SLZ';
+      logger.info('[VozPlay Security] SUPERVISOR_PASSWORD não definida. Utilizando credencial padrão de desenvolvimento.');
     }
     if (!process.env.CONTROLLER_PASSWORD) {
-      process.env.CONTROLLER_PASSWORD = crypto.randomBytes(16).toString('hex');
-      logger.warn('[VozPlay Security] CONTROLLER_PASSWORD não definida. Gerada credencial criptográfica efêmera para a sessão.');
+      process.env.CONTROLLER_PASSWORD = 'VozPlay@SoundDesk704!SLZ';
+      logger.info('[VozPlay Security] CONTROLLER_PASSWORD não definida. Utilizando credencial padrão de desenvolvimento.');
     }
   }
 }

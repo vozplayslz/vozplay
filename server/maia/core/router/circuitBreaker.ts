@@ -138,6 +138,13 @@ export class AICircuitBreaker {
   }
 
   /**
+   * Retorna se o circuito está aberto para o provedor
+   */
+  public isOpen(providerId: string): boolean {
+    return this.getState(providerId) === 'OPEN';
+  }
+
+  /**
    * Reseta o circuito de um provedor manualmente
    */
   public reset(providerId?: string): void {

@@ -27,9 +27,28 @@ import {
   aiAudit,
   MaIADashboardDTO,
   MAIA_KARAOKE_IDENTITY,
-  maiaAgentRuntime
+  maiaAgentRuntime,
+  maiaCoreVoiceManager,
+  maiaAutonomyCoordinator,
+  autonomyPolicyManager,
+  maiaEmergencyStop,
+  autonomyCircuitBreaker,
+  autonomyTriggerEngine
 } from './maia/index.js';
+import {
+  maiaObservability,
+  maiaAuditConsolidator,
+  maiaPromptShield,
+  MaiaPrivacyManager,
+  maiaRateLimiter as maiaCoreRateLimiter
+} from './maia/core/index.js';
 import { maiaMemoryService } from './maia/core/memory/index.js';
+import {
+  rateLimiter,
+  featureFlagManager,
+  healthMonitor,
+  securityAuditStore
+} from './security/index.js';
 
 export const apiRouter = Router();
 
@@ -2616,6 +2635,413 @@ apiRouter.post('/maia/tasks/:id/cancel', requireRole(['SUPERVISOR', 'CONTROLLER'
     res.status(err.statusCode || 400).json({ success: false, error: err.message || 'Erro ao cancelar tarefa.' });
   }
 });
+
+// ==========================================
+// MAIA VOICE & GEMINI LIVE LAYER (/api/v1/maia/voice/* - FASE 09)
+// ==========================================
+
+// POST /api/v1/maia/voice/sessions - Inicia uma nova sessão de voz
+apiRouter.post('/maia/voice/sessions', requireRole(['SUPERVISOR', 'CONTROLLER', 'PARTICIPANT', 'TV']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { profile, language, voiceId, channel, allowBargeIn } = req.body;
+
+    const session = await maiaCoreVoiceManager.startSession({
+      tenantId: establishmentId,
+      sessionId: req.user?.sessionId || db.session.id,
+      userId: req.user?.actorId,
+      actorRole: req.user?.role || 'PARTICIPANT',
+      channel: (channel || (req.user?.role === 'TV' ? 'tv' : req.user?.role === 'CONTROLLER' ? 'controller' : 'web')) as any,
+      profile: profile || 'BALANCEADO',
+      language: language || 'pt-BR',
+      voiceId: voiceId || 'Aoede',
+      allowBargeIn: allowBargeIn !== false
+    });
+
+    res.json({ success: true, data: session });
+  } catch (err: any) {
+    logger.error('Erro ao iniciar sessão de voz:', err);
+    res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Erro ao iniciar sessão de voz.' });
+  }
+});
+
+// GET /api/v1/maia/voice/sessions/:id - Obtém detalhes de uma sessão de voz ativa
+apiRouter.get('/maia/voice/sessions/:id', requireRole(['SUPERVISOR', 'CONTROLLER', 'PARTICIPANT', 'TV']), (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const session = maiaCoreVoiceManager.getSession(req.params.id, establishmentId);
+
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Sessão de voz não encontrada.' });
+    }
+
+    res.json({ success: true, data: session });
+  } catch (err: any) {
+    logger.error('Erro ao buscar sessão de voz:', err);
+    res.status(500).json({ success: false, error: 'Erro ao buscar sessão de voz.' });
+  }
+});
+
+// POST /api/v1/maia/voice/sessions/:id/audio - Envia chunk de áudio
+apiRouter.post('/maia/voice/sessions/:id/audio', requireRole(['SUPERVISOR', 'CONTROLLER', 'PARTICIPANT', 'TV']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { data, format, sampleRate, channels, isFinal } = req.body;
+
+    if (!data) {
+      return res.status(400).json({ success: false, error: 'Payload de áudio (data) é obrigatório.' });
+    }
+
+    await maiaCoreVoiceManager.sendAudio(req.params.id, {
+      data,
+      format: format || 'wav',
+      sampleRate: sampleRate || 24000,
+      channels: channels || 1,
+      isFinal: Boolean(isFinal),
+      timestamp: Date.now()
+    }, establishmentId);
+
+    res.json({ success: true, message: 'Chunk de áudio processado com sucesso.' });
+  } catch (err: any) {
+    logger.error('Erro ao enviar áudio para a sessão de voz:', err);
+    res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Erro ao processar áudio.' });
+  }
+});
+
+// POST /api/v1/maia/voice/sessions/:id/text - Envia texto para a sessão de voz
+apiRouter.post('/maia/voice/sessions/:id/text', requireRole(['SUPERVISOR', 'CONTROLLER', 'PARTICIPANT', 'TV']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { text } = req.body;
+
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ success: false, error: 'Texto é obrigatório.' });
+    }
+
+    await maiaCoreVoiceManager.sendText(req.params.id, text, establishmentId);
+    res.json({ success: true, message: 'Texto enviado com sucesso.' });
+  } catch (err: any) {
+    logger.error('Erro ao enviar texto para a sessão de voz:', err);
+    res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Erro ao processar texto.' });
+  }
+});
+
+// POST /api/v1/maia/voice/sessions/:id/interrupt - Dispara interrupção (Barge-In)
+apiRouter.post('/maia/voice/sessions/:id/interrupt', requireRole(['SUPERVISOR', 'CONTROLLER', 'PARTICIPANT', 'TV']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    await maiaCoreVoiceManager.interrupt(req.params.id, establishmentId);
+    res.json({ success: true, message: 'Interrupção (Barge-In) acionada com sucesso.' });
+  } catch (err: any) {
+    logger.error('Erro ao acionar interrupção de voz:', err);
+    res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Erro ao acionar interrupção.' });
+  }
+});
+
+// POST /api/v1/maia/voice/sessions/:id/intent - Processa intenção de voz via Agent Runtime & Policy Engine
+apiRouter.post('/maia/voice/sessions/:id/intent', requireRole(['SUPERVISOR', 'CONTROLLER', 'PARTICIPANT', 'TV']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { transcription } = req.body;
+
+    if (!transcription || typeof transcription !== 'string') {
+      return res.status(400).json({ success: false, error: 'Transcrição falada é obrigatória.' });
+    }
+
+    const session = maiaCoreVoiceManager.getSession(req.params.id, establishmentId);
+    if (!session) {
+      return res.status(404).json({ success: false, error: 'Sessão de voz não encontrada.' });
+    }
+
+    const intentResult = await maiaCoreVoiceManager.processVoiceIntent(session, transcription);
+    res.json({ success: true, data: intentResult });
+  } catch (err: any) {
+    logger.error('Erro ao processar intenção de voz:', err);
+    res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Erro ao processar intenção de voz.' });
+  }
+});
+
+// POST /api/v1/maia/voice/sessions/:id/end - Encerra a sessão de voz e retorna telemetria
+apiRouter.post('/maia/voice/sessions/:id/end', requireRole(['SUPERVISOR', 'CONTROLLER', 'PARTICIPANT', 'TV']), async (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const endedSession = await maiaCoreVoiceManager.endSession(req.params.id, establishmentId);
+    res.json({ success: true, data: endedSession, message: 'Sessão de voz encerrada com sucesso.' });
+  } catch (err: any) {
+    logger.error('Erro ao encerrar sessão de voz:', err);
+    res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Erro ao encerrar sessão de voz.' });
+  }
+});
+
+// GET /api/v1/maia/voice/metrics - Telemetria e observabilidade da camada de voz
+apiRouter.get('/maia/voice/metrics', requireRole(['SUPERVISOR', 'CONTROLLER']), (_req, res) => {
+  res.json({
+    success: true,
+    data: maiaCoreVoiceManager.getMetrics()
+  });
+});
+
+// ==========================================
+// MAIA CONTROLLED AUTONOMY LAYER (/api/v1/maia/autonomy/* - FASE 10)
+// ==========================================
+
+// GET /api/v1/maia/autonomy/status - Status da autonomia do tenant
+apiRouter.get('/maia/autonomy/status', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const policy = autonomyPolicyManager.getPolicy(establishmentId);
+    const isStopped = maiaEmergencyStop.isEmergencyStopActive(establishmentId);
+    const isCircuitOpen = autonomyCircuitBreaker.isOpen(establishmentId);
+
+    res.json({
+      success: true,
+      data: {
+        tenantId: establishmentId,
+        enabled: policy.enabled && !isStopped && !isCircuitOpen,
+        mode: policy.mode,
+        level: policy.level,
+        isEmergencyStopActive: isStopped,
+        isCircuitBreakerOpen: isCircuitOpen,
+        temporaryGrantActive: Boolean(policy.temporaryGrant)
+      }
+    });
+  } catch (err: any) {
+    logger.error('Erro ao consultar status de autonomia:', err);
+    res.status(500).json({ success: false, error: err.message || 'Erro ao consultar status de autonomia.' });
+  }
+});
+
+// GET /api/v1/maia/autonomy/policy - Consulta política de autonomia do tenant
+apiRouter.get('/maia/autonomy/policy', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const policy = autonomyPolicyManager.getPolicy(establishmentId);
+    res.json({ success: true, data: policy });
+  } catch (err: any) {
+    logger.error('Erro ao buscar política de autonomia:', err);
+    res.status(500).json({ success: false, error: err.message || 'Erro ao buscar política de autonomia.' });
+  }
+});
+
+// PUT /api/v1/maia/autonomy/policy - Atualiza política de autonomia do tenant (Apenas SUPERVISOR)
+apiRouter.put('/maia/autonomy/policy', requireRole(['SUPERVISOR']), (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const updated = autonomyPolicyManager.setPolicy(establishmentId, req.body);
+    res.json({ success: true, data: updated, message: 'Política de autonomia atualizada com sucesso.' });
+  } catch (err: any) {
+    logger.error('Erro ao atualizar política de autonomia:', err);
+    res.status(err.statusCode || 400).json({ success: false, error: err.message || 'Erro ao atualizar política.' });
+  }
+});
+
+// POST /api/v1/maia/autonomy/grant-temporary - Concede autonomia temporária (TTL)
+apiRouter.post('/maia/autonomy/grant-temporary', requireRole(['SUPERVISOR']), (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { durationMinutes, allowedLevel, reason, allowedTools } = req.body;
+
+    if (!durationMinutes || typeof durationMinutes !== 'number') {
+      return res.status(400).json({ success: false, error: 'durationMinutes numérico é obrigatório.' });
+    }
+
+    const updated = autonomyPolicyManager.grantTemporaryAutonomy(establishmentId, {
+      durationMinutes,
+      grantedBy: req.user?.actorId || 'supervisor',
+      reason: reason || 'Concessão operacional temporária',
+      allowedLevel: allowedLevel ?? 3,
+      allowedTools
+    });
+
+    res.json({ success: true, data: updated, message: `Autonomia temporária concedida por ${durationMinutes} minutos.` });
+  } catch (err: any) {
+    logger.error('Erro ao conceder autonomia temporária:', err);
+    res.status(err.statusCode || 400).json({ success: false, error: err.message || 'Erro ao conceder autonomia temporária.' });
+  }
+});
+
+// POST /api/v1/maia/autonomy/revoke-temporary - Revoga concessão temporária
+apiRouter.post('/maia/autonomy/revoke-temporary', requireRole(['SUPERVISOR']), (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const updated = autonomyPolicyManager.revokeTemporaryGrant(establishmentId);
+    res.json({ success: true, data: updated, message: 'Concessão temporária revogada com sucesso.' });
+  } catch (err: any) {
+    logger.error('Erro ao revogar concessão temporária:', err);
+    res.status(500).json({ success: false, error: err.message || 'Erro ao revogar concessão.' });
+  }
+});
+
+// POST /api/v1/maia/autonomy/emergency-stop - Parada de emergência (MaIA STOP)
+apiRouter.post('/maia/autonomy/emergency-stop', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { action, reason } = req.body;
+
+    if (action === 'reset') {
+      maiaAutonomyCoordinator.resetEmergencyStop(establishmentId);
+      res.json({ success: true, message: 'Parada de emergência desativada. Autonomia rearmada com segurança.' });
+    } else {
+      maiaAutonomyCoordinator.triggerEmergencyStop(establishmentId, reason || 'Parada de emergência acionada na interface');
+      res.json({ success: true, message: 'PARADA DE EMERGÊNCIA ATIVADA: Todas as ações autônomas foram suspensas imediatamente.' });
+    }
+  } catch (err: any) {
+    logger.error('Erro ao acionar comando de emergência:', err);
+    res.status(500).json({ success: false, error: err.message || 'Erro ao processar parada de emergência.' });
+  }
+});
+
+// POST /api/v1/maia/autonomy/human-takeover - Assunção humana do controle operacional
+apiRouter.post('/maia/autonomy/human-takeover', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
+  try {
+    const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+    const { reason, sessionId } = req.body;
+
+    maiaAutonomyCoordinator.triggerHumanTakeover(
+      establishmentId,
+      req.user?.actorId || 'operator',
+      reason || 'Operador assumiu a mesa de som / fila manualmente',
+      sessionId || db.session.id
+    );
+
+    res.json({ success: true, message: 'Human Takeover confirmado: a MaIA cedeu o controle imediatamente e pausou tarefas autônomas.' });
+  } catch (err: any) {
+    logger.error('Erro ao processar Human Takeover:', err);
+    res.status(500).json({ success: false, error: err.message || 'Erro ao processar Human Takeover.' });
+  }
+});
+
+// GET /api/v1/maia/autonomy/triggers - Lista gatilhos registrados
+apiRouter.get('/maia/autonomy/triggers', requireRole(['SUPERVISOR', 'CONTROLLER']), (_req, res) => {
+  res.json({
+    success: true,
+    data: autonomyTriggerEngine.listTriggers().map(t => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      eventType: t.eventType,
+      action: t.action,
+      riskLevel: t.riskLevel,
+      autonomyAction: t.autonomyAction,
+      cooldownMs: t.cooldownMs,
+      enabled: t.enabled
+    }))
+  });
+});
+
+// GET /api/v1/maia/autonomy/metrics - Métricas e observabilidade da autonomia
+apiRouter.get('/maia/autonomy/metrics', requireRole(['SUPERVISOR', 'CONTROLLER']), (_req, res) => {
+  res.json({
+    success: true,
+    data: maiaAutonomyCoordinator.getMetrics()
+  });
+});
+
+// GET /api/v1/maia/autonomy/audit - Histórico de auditoria de autonomia
+apiRouter.get('/maia/autonomy/audit', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
+  const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+  res.json({
+    success: true,
+    data: maiaAutonomyCoordinator.getAuditLog(establishmentId)
+  });
+});
+
+// ============================================================================
+// 19. MAIA OBSERVABILITY, SECURITY & LGPD (FASE 11)
+// ============================================================================
+
+// GET /api/v1/maia/observability/health - Diagnóstico de saúde profunda de todos os 10 subsistemas
+apiRouter.get('/maia/observability/health', async (_req, res) => {
+  const report = await maiaObservability.getDeepHealthReport();
+  const statusCode = report.overall === 'HEALTHY' ? 200 : report.overall === 'DEGRADED' ? 200 : 503;
+  res.status(statusCode).json({
+    success: report.overall !== 'UNHEALTHY',
+    data: report
+  });
+});
+
+// GET /api/v1/maia/observability/metrics - Métricas consolidadas em JSON
+apiRouter.get('/maia/observability/metrics', requireRole(['SUPERVISOR', 'CONTROLLER']), (_req, res) => {
+  res.json({
+    success: true,
+    data: maiaObservability.getConsolidatedMetrics()
+  });
+});
+
+// GET /api/v1/maia/observability/prometheus - Exportador no padrão texto do Prometheus
+apiRouter.get('/maia/observability/prometheus', (_req, res) => {
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+  res.send(maiaObservability.getPrometheusMetrics());
+});
+
+// GET /api/v1/maia/observability/audit - Trilha de auditoria consolidada multi-tenant
+apiRouter.get('/maia/observability/audit', requireRole(['SUPERVISOR']), (req, res) => {
+  const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+  const result = maiaAuditConsolidator.query({
+    tenantId: establishmentId,
+    actorId: req.query.actorId as string,
+    eventType: req.query.eventType as string,
+    limit: req.query.limit ? Number(req.query.limit) : 50,
+    offset: req.query.offset ? Number(req.query.offset) : 0
+  });
+
+  res.json({
+    success: true,
+    data: result
+  });
+});
+
+// POST /api/v1/maia/privacy/purge-participant - Expurgo e anonimização de participante (LGPD)
+apiRouter.post('/maia/privacy/purge-participant', requireRole(['SUPERVISOR']), async (req, res) => {
+  const establishmentId = req.user?.establishmentId || db.session.establishmentId;
+  const { participantId, reason } = req.body;
+
+  if (!participantId) {
+    return res.status(400).json({ success: false, error: 'participantId é obrigatório para expurgo.' });
+  }
+
+  try {
+    const result = await MaiaPrivacyManager.purgeParticipantData({
+      tenantId: establishmentId,
+      participantId,
+      requestedBy: req.user?.actorName || 'Supervisor',
+      reason: reason || 'Solicitação de direito ao esquecimento LGPD'
+    });
+
+    maiaAuditConsolidator.record({
+      tenantId: establishmentId,
+      source: 'PrivacyManager',
+      category: 'PRIVACY',
+      action: 'LGPD_PURGE_PARTICIPANT',
+      actor: { id: req.user?.id, role: req.user?.role, name: req.user?.actorName },
+      status: 'SUCCESS',
+      details: { participantId, removedMemories: result.removedMemories, anonymizedQueueItems: result.anonymizedQueueItems }
+    });
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Erro ao processar expurgo LGPD.' });
+  }
+});
+
+// POST /api/v1/maia/security/scan-prompt - Varredura anti-prompt-injection e sanitização
+apiRouter.post('/maia/security/scan-prompt', requireRole(['SUPERVISOR', 'CONTROLLER']), (req, res) => {
+  const { text } = req.body;
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ success: false, error: 'Campo text é obrigatório.' });
+  }
+
+  const result = maiaPromptShield.scan(text);
+  res.json({
+    success: true,
+    data: result
+  });
+});
+
+
 
 
 

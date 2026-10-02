@@ -297,6 +297,8 @@ export interface IMaiaMemoryStore {
   getConversationHistory: (tenantId: string, sessionId: string, actorId: string, limit?: number) => Promise<MaiaCoreConversationTurn[]>;
   appendConversationTurn: (tenantId: string, sessionId: string, actorId: string, turn: MaiaCoreConversationTurn) => Promise<void>;
   clearSessionMemory: (tenantId: string, sessionId: string) => Promise<void>;
+  purgeParticipantData?: (tenantId: string, participantId: string) => Promise<{ removedMemories: number; removedTurns: number }>;
+  purgeTenantData?: (tenantId: string) => Promise<number>;
 }
 
 // ============================================================================

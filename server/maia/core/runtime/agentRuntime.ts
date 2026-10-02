@@ -644,6 +644,48 @@ export class MaiaAgentRuntime {
     return task;
   }
 
+  /**
+   * Obtém uma tarefa pelo ID
+   */
+  public getTask(taskId: string, tenantId?: string): AgentTask | undefined {
+    return this.taskStore.get(taskId, tenantId);
+  }
+
+  /**
+   * Lista tarefas de um tenant
+   */
+  public listTasks(tenantId?: string, status?: AgentTaskStatus): AgentTask[] {
+    return this.taskStore.list(tenantId || '', { status });
+  }
+
+  /**
+   * Pausa uma tarefa em execução
+   */
+  public async pauseTask(taskId: string, reason?: string, tenantId?: string): Promise<AgentTask> {
+    const task = this.taskStore.get(taskId, tenantId);
+    if (!task) {
+      throw new MaiaNotFoundError(`Tarefa '${taskId}' não encontrada.`);
+    }
+
+    if (['completed', 'failed', 'cancelled'].includes(task.status)) {
+      return task;
+    }
+
+    task.status = 'paused';
+    task.updatedAt = new Date().toISOString();
+    this.taskStore.save(task);
+
+    await this.eventBus.emit({
+      name: 'maia.agent.task_paused',
+      tenantId: task.tenantId,
+      source: 'MaiaAgentRuntime',
+      correlationId: task.correlationId,
+      payload: { taskId: task.id, reason: reason || 'Tarefa pausada' }
+    });
+
+    return task;
+  }
+
   // ============================================================================
   // 3. INTEGRAÇÃO COM MAIA PERCEPTION (Seção 26)
   // ============================================================================

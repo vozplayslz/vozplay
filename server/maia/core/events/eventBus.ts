@@ -17,6 +17,7 @@ import {
   EventBusOptions,
   IEventBus
 } from './types.js';
+import { MaiaEventGuard } from '../security/eventGuard.js';
 
 interface RegisteredSubscription {
   id: string;
@@ -90,7 +91,11 @@ export class EventBus implements IEventBus {
    */
   public async publish<T = any>(event: DomainEvent<T>): Promise<void> {
     const startTime = Date.now();
-    const eventType = event.type || event.name || 'unspecified.event';
+
+    // 0. Validação de segurança e anti-poisoning de eventos (Fase 11)
+    MaiaEventGuard.validateEvent(event);
+
+    const eventType = (event.type || event.name)!;
     const nowIso = new Date().toISOString();
 
     // Normalização dos campos universais do evento
@@ -102,7 +107,7 @@ export class EventBus implements IEventBus {
       version: event.version || 1,
       occurredAt: event.occurredAt || event.timestamp || nowIso,
       timestamp: event.occurredAt || event.timestamp || nowIso,
-      source: event.source || 'system',
+      source: event.source!,
       payload: event.payload
     };
 

@@ -20,7 +20,8 @@ import {
   ToolRiskLevel,
   MaiaCoreAIProvider,
   maiaContextEngine,
-  MaiaToolExecutionContext
+  MaiaToolExecutionContext,
+  maiaAutonomyCoordinator
 } from './core/index.js';
 
 import {
@@ -366,6 +367,9 @@ export function bootstrapKaraokeDomain(): void {
   };
 
   maiaAIRouter.registerProvider(defaultProvider);
+
+  // Inicia a escuta da Autonomia Controlada (Fase 10)
+  maiaAutonomyCoordinator.start();
 
   logger.info('[MaiaKaraokeBridge] Tool Registry Avançado carregado com sucesso (13 ferramentas oficiais + addSong).');
 }

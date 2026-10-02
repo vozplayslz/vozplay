@@ -87,6 +87,61 @@ export class InMemoryMaiaMemoryStore implements IMaiaMemoryStore {
       }
     }
   }
+
+  /**
+   * Expurgo de dados do participante para cumprimento da LGPD (Direito ao Esquecimento)
+   */
+  public async purgeParticipantData(
+    tenantId: string,
+    participantId: string
+  ): Promise<{ removedMemories: number; removedTurns: number }> {
+    let removedMemories = 0;
+    let removedTurns = 0;
+
+    // 1. Remove valores de memória indexados pelo participante
+    for (const [key, entry] of this.keyValues.entries()) {
+      if (entry.tenantId === tenantId && (key.includes(participantId) || entry.key.includes(participantId))) {
+        this.keyValues.delete(key);
+        removedMemories++;
+      }
+    }
+
+    // 2. Remove turnos de conversação do participante
+    const suffix = `:${participantId}`;
+    for (const key of this.conversationTurns.keys()) {
+      if (key.startsWith(`${tenantId}:`) && key.endsWith(suffix)) {
+        const count = this.conversationTurns.get(key)?.length || 0;
+        this.conversationTurns.delete(key);
+        removedTurns += count;
+      }
+    }
+
+    return { removedMemories, removedTurns };
+  }
+
+  /**
+   * Expurga todos os dados de memória de um tenant específico (Isolamento e remoção)
+   */
+  public async purgeTenantData(tenantId: string): Promise<number> {
+    let count = 0;
+    const prefix = `${tenantId}:`;
+
+    for (const key of this.keyValues.keys()) {
+      if (key.startsWith(prefix)) {
+        this.keyValues.delete(key);
+        count++;
+      }
+    }
+
+    for (const key of this.conversationTurns.keys()) {
+      if (key.startsWith(prefix)) {
+        this.conversationTurns.delete(key);
+        count++;
+      }
+    }
+
+    return count;
+  }
 }
 
 export const maiaMemoryEngine = new InMemoryMaiaMemoryStore();

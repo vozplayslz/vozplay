@@ -27,3 +27,7 @@ export * from './perception/index.js';
 export * from './router/index.js';
 export * from './memory/index.js';
 export * from './runtime/index.js';
+export * from './voice/index.js';
+export * from './autonomy/index.js';
+export * from './security/index.js';
+export * from './observability/index.js';
