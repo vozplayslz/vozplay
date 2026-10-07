@@ -139,6 +139,8 @@ export interface MaIAUsageMetrics {
   ttsLatencyMs: number;
   liveSessionsCount: number;
   estimatedCostUsd: number;
+  actualCostUsd: number;
+  isCostEstimated: boolean;
   tokensInput: number;
   tokensOutput: number;
   lastUsedAt: string;

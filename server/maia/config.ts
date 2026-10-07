@@ -202,6 +202,8 @@ class MaIAConfigManager {
         ttsLatencyMs: 0,
         liveSessionsCount: 0,
         estimatedCostUsd: 0,
+        actualCostUsd: 0,
+        isCostEstimated: true,
         tokensInput: 0,
         tokensOutput: 0,
         lastUsedAt: new Date().toISOString(),

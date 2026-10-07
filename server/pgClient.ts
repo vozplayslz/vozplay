@@ -41,8 +41,13 @@ export class DatabaseClient {
    * Testa e estabelece conexão com o PostgreSQL
    */
   async init(): Promise<boolean> {
+    const isProduction = process.env.NODE_ENV === 'production';
+
     if (!this.pool) {
-      logger.info('DATABASE_URL não configurada no ambiente. Operando com armazenamento in-memory resiliente.');
+      if (isProduction) {
+        throw new Error('[CRITICAL_DATABASE_ERROR] DATABASE_URL é estritamente obrigatória em ambiente de produção.');
+      }
+      logger.info('DATABASE_URL não configurada no ambiente. Operando com armazenamento in-memory para desenvolvimento local.');
       return false;
     }
 
@@ -61,7 +66,10 @@ export class DatabaseClient {
         client.release();
       }
     } catch (err) {
-      logger.warn('Falha ao conectar no PostgreSQL. Usando armazenamento in-memory resiliente:', { error: String(err) });
+      if (isProduction) {
+        throw new Error(`[CRITICAL_DATABASE_ERROR] Falha mandatória ao conectar com PostgreSQL em produção: ${String(err)}`);
+      }
+      logger.warn('Falha ao conectar no PostgreSQL. Usando armazenamento in-memory para desenvolvimento local:', { error: String(err) });
       this.isConnected = false;
       return false;
     }

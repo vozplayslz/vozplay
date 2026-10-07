@@ -58,12 +58,12 @@ class MaiaMemoryStore {
     actorId = 'anon'
   ): string {
     const actorKey = `${actorRole}:${actorId || 'anon'}`;
-    // Executa busca síncrona consultando a store interna do maiaMemoryEngine
-    const turns = (maiaMemoryEngine as any).getConversationTurnsSync?.(establishmentId, sessionId, actorKey) || [];
+    // Executa busca síncrona consultando a store oficial do maiaMemoryEngine
+    const turns = maiaMemoryEngine.getConversationTurnsSync(establishmentId, sessionId, actorKey);
     if (!turns || turns.length === 0) return '';
 
     return turns
-      .map((t: any) => `${t.role === 'user' ? 'Usuário' : 'MaIA Karaokê'}: ${t.text}`)
+      .map(t => `${t.role === 'user' ? 'Usuário' : 'MaIA Karaokê'}: ${t.text}`)
       .join('\n');
   }
 

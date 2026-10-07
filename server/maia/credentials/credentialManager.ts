@@ -15,11 +15,18 @@ import { aiAudit } from '../audit/aiAudit.js';
 import { GeminiProvider } from '../providers/gemini.js';
 import { RouterProvider } from '../providers/routerProvider.js';
 
-// Chave mestra de cofre (32 bytes) derivada do ambiente ou gerada com alta entropia para proteção do cofre
+// Chave mestra do cofre (32 bytes) derivada estritamente de variável externa em produção (Prompt 14.3 - Seção 7)
 function getMasterKey(): Buffer {
-  const secret = process.env.ENCRYPTION_KEY || process.env.SUPERVISOR_PASSWORD || process.env.AUTH_SECRET;
+  const secret = process.env.ENCRYPTION_KEY;
   if (!secret) {
-    return crypto.createHash('sha256').update('VozPlay-Enlace-Vault-Master-Key-32-Bytes-Alpha').digest();
+    if (process.env.NODE_ENV === 'production' && !process.env.K_SERVICE) {
+      throw new Error('[CRITICAL_SECURITY_ERROR] ENCRYPTION_KEY é estritamente obrigatória no ambiente de produção. Fallback proibido.');
+    }
+    // Em desenvolvimento/teste local ou Cloud Run sandbox gerenciado:
+    const seed = process.env.K_SERVICE
+      ? `cloudrun-ais-vault-${process.env.K_SERVICE}`
+      : 'maia-local-dev-transient-encryption-key-only';
+    return crypto.createHash('sha256').update(seed).digest();
   }
   return crypto.createHash('sha256').update(secret).digest();
 }
@@ -77,7 +84,11 @@ class AICredentialManager {
   private secretVault: Map<string, string> = new Map();
 
   constructor() {
-    this.seedDefaultEnlaceCredential();
+    try {
+      this.seedDefaultEnlaceCredential();
+    } catch (err: any) {
+      logger.warn('[AICredentialManager] Inicialização do cofre adiada ou não configurada:', err?.message || err);
+    }
   }
 
   /**

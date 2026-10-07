@@ -15,10 +15,10 @@ import { logger } from './logger.js';
 export function validateEnvironment(allowThrow = false): void {
   const isProd = process.env.NODE_ENV === 'production';
 
-  // Em produção estrita (Prompt 14.2 - Seção 2.3):
+  // Em produção estrita (Prompt 14.3 - Seções 2.3 e 6):
   // - ausência de DATABASE_URL = erro fatal
   // - ausência de secrets obrigatórios = erro fatal
-  // - fallback de credencial = proibido
+  // - fallback de credencial = terminantemente proibido
   // - banco em memória como substituto = proibido
   if (isProd) {
     const missing: string[] = [];
@@ -33,35 +33,19 @@ export function validateEnvironment(allowThrow = false): void {
       if (allowThrow || process.env.STARTUP_TEST === 'true') {
         throw new Error(errorMsg);
       }
-
-      // No Cloud Run / ambiente gerenciado onde variáveis não foram passadas externamente:
-      // Atribuir credenciais seguras de inicialização para manter o container vivo e saudável
-      logger.warn(`[VozPlay Security] Variáveis de ambiente ausentes no orquestrador: ${missing.join(', ')}. Atribuindo credenciais de inicialização seguras para manter a disponibilidade da plataforma.`);
-      if (!process.env.SUPERVISOR_PASSWORD) {
-        process.env.SUPERVISOR_PASSWORD = 'DEV_ONLY_TEMPORARY_SUPERVISOR_SECRET_2026';
+      if (process.env.K_SERVICE) {
+        logger.warn(`[VozPlay Cloud Run] Ambiente Cloud Run ativo (${process.env.K_SERVICE}) sem secrets injetados externamente. O servidor responderá liveness normalmente, mas readiness indicará NOT_READY até o provisionamento.`);
+        return;
       }
-      if (!process.env.CONTROLLER_PASSWORD) {
-        process.env.CONTROLLER_PASSWORD = 'DEV_ONLY_TEMPORARY_CONTROLLER_SECRET_2026';
-      }
-      if (!process.env.ENCRYPTION_KEY) {
-        process.env.ENCRYPTION_KEY = 'DEV_ONLY_TEMPORARY_VAULT_KEY_32BYTES_ALPHA';
-      }
+      process.exit(1);
     }
   } else {
-    // Ambiente explícito de desenvolvimento / teste (NODE_ENV !== 'production')
+    // Ambiente explícito de desenvolvimento / teste local (NODE_ENV !== 'production')
     if (!process.env.DATABASE_URL) {
-      logger.info('[VozPlay Runtime] Ambiente de desenvolvimento/teste: DATABASE_URL não definida, operando com armazenamento in-memory isolado.');
+      logger.info('[VozPlay Runtime] Ambiente local de desenvolvimento/teste: DATABASE_URL não definida, utilizando armazenamento in-memory isolado.');
     }
-    if (!process.env.SUPERVISOR_PASSWORD) {
-      process.env.SUPERVISOR_PASSWORD = 'DEV_ONLY_TEMPORARY_SUPERVISOR_SECRET_2026';
-      logger.info('[VozPlay Security] Ambiente de desenvolvimento: SUPERVISOR_PASSWORD temporária de teste inicializada.');
-    }
-    if (!process.env.CONTROLLER_PASSWORD) {
-      process.env.CONTROLLER_PASSWORD = 'DEV_ONLY_TEMPORARY_CONTROLLER_SECRET_2026';
-      logger.info('[VozPlay Security] Ambiente de desenvolvimento: CONTROLLER_PASSWORD temporária de teste inicializada.');
-    }
-    if (!process.env.ENCRYPTION_KEY) {
-      process.env.ENCRYPTION_KEY = 'DEV_ONLY_TEMPORARY_VAULT_KEY_32BYTES_ALPHA';
+    if (!process.env.SUPERVISOR_PASSWORD || !process.env.CONTROLLER_PASSWORD) {
+      logger.info('[VozPlay Security] Ambiente de desenvolvimento: credenciais operacionais não configuradas via ambiente.');
     }
   }
 }

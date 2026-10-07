@@ -10,6 +10,12 @@
 import { RateLimitCheckResult, RateLimitRule } from './types.js';
 import { maiaPromptShield } from './promptShield.js';
 
+/**
+ * Modo operacional do Rate Limiter da MaIA: estritamente local à instância (não distribuído)
+ * Prompt 14.3 - Seção 20
+ */
+export const RATE_LIMIT_MODE = 'INSTANCE_LOCAL';
+
 interface RequestBucket {
   timestamps: number[];
 }

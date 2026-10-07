@@ -62,8 +62,18 @@ class AuthService {
    * Inicializa credenciais com Argon2id controlado unicamente pelo ciclo de bootstrap
    */
   public async initDefaultCredentials(): Promise<void> {
-    const supervisorPass = process.env.SUPERVISOR_PASSWORD || 'DEV_ONLY_TEMPORARY_SUPERVISOR_SECRET_2026';
-    const controllerPass = process.env.CONTROLLER_PASSWORD || 'DEV_ONLY_TEMPORARY_CONTROLLER_SECRET_2026';
+    const isProduction = process.env.NODE_ENV === 'production';
+    const supervisorPass = process.env.SUPERVISOR_PASSWORD;
+    const controllerPass = process.env.CONTROLLER_PASSWORD;
+
+    if (isProduction && (!supervisorPass || !controllerPass)) {
+      if (process.env.K_SERVICE) {
+        logger.warn('[VozPlay Auth] Cloud Run sem credenciais de produção injetadas. Usuários mestres aguardam configuração de secrets.');
+        this.isInitialized = true;
+        return;
+      }
+      throw new Error('[CRITICAL_AUTH_ERROR] SUPERVISOR_PASSWORD e CONTROLLER_PASSWORD são estritamente obrigatórias em produção.');
+    }
 
     if (supervisorPass) {
       const superHash = await this.hashPassword(supervisorPass);

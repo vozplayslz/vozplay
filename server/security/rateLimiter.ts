@@ -13,6 +13,12 @@ import { Request, Response, NextFunction } from 'express';
 import { logger } from '../logger.js';
 import { featureFlagManager } from './featureFlags.js';
 
+/**
+ * Modo operacional do Rate Limiter: estritamente local à instância (não distribuído)
+ * Prompt 14.3 - Seção 20
+ */
+export const RATE_LIMIT_MODE = 'INSTANCE_LOCAL';
+
 interface RateLimitEntry {
   count: number;
   tokensCount?: number;

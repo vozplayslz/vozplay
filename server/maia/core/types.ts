@@ -296,9 +296,11 @@ export interface IMaiaMemoryStore {
   delete: (key: string, tenantId: string, scope?: MaiaMemoryScope) => Promise<boolean>;
   getConversationHistory: (tenantId: string, sessionId: string, actorId: string, limit?: number) => Promise<MaiaCoreConversationTurn[]>;
   appendConversationTurn: (tenantId: string, sessionId: string, actorId: string, turn: MaiaCoreConversationTurn) => Promise<void>;
+  addConversationTurn: (tenantId: string, sessionId: string, actorId: string, turn: { role: 'user' | 'maia'; content?: string; text?: string }) => void;
+  getConversationTurnsSync: (tenantId: string, sessionId: string, actorId: string, limit?: number) => MaiaCoreConversationTurn[];
   clearSessionMemory: (tenantId: string, sessionId: string) => Promise<void>;
-  purgeParticipantData?: (tenantId: string, participantId: string) => Promise<{ removedMemories: number; removedTurns: number }>;
-  purgeTenantData?: (tenantId: string) => Promise<number>;
+  purgeParticipantData: (tenantId: string, participantId: string) => Promise<{ removedMemories: number; removedTurns: number }>;
+  purgeTenantData: (tenantId: string) => Promise<number>;
 }
 
 // ============================================================================

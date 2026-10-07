@@ -7,7 +7,8 @@
  * Transições de Fila, Sanitização de TVSessionDTO, Anti-Monopólio, LGPD e Recuperação.
  */
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ path: ['.env.local', '.env'] });
 import { buildQueueCallText, buildFirstAbsenceText, buildSecondAbsenceText, MAIA_VOZPLAY_PERSONA } from '../server/maia/prompts.js';
 
 const BASE_URL = 'http://127.0.0.1:3000';
@@ -91,7 +92,7 @@ async function runTests() {
     await assert(badLoginRes.status === 401, 'Login com senha incorreta rejeitado com 401');
 
     // Login autêntico como Controlador
-    const ctrlPass = process.env.CONTROLLER_PASSWORD || 'VozPlay@SoundDesk704!SLZ';
+    const ctrlPass = process.env.CONTROLLER_PASSWORD || '';
     const ctrlLoginRes = await fetch(`${BASE_URL}/api/v1/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -102,7 +103,7 @@ async function runTests() {
     const controllerToken = ctrlLoginData.token;
 
     // Login autêntico como Supervisor
-    const superPass = process.env.SUPERVISOR_PASSWORD || 'VozPlay@SuperAdmin2026!SLZ';
+    const superPass = process.env.SUPERVISOR_PASSWORD || '';
     const superLoginRes = await fetch(`${BASE_URL}/api/v1/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
