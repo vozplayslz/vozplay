@@ -19,12 +19,19 @@ import { RouterProvider } from '../providers/routerProvider.js';
 function getMasterKey(): Buffer {
   const secret = process.env.ENCRYPTION_KEY;
   if (!secret) {
-    if (process.env.NODE_ENV === 'production' && !process.env.K_SERVICE) {
+    const isCloudRun = Boolean(
+      process.env.K_SERVICE || 
+      process.env.K_REVISION || 
+      process.env.CLOUD_RUN_TIMEOUT_SECONDS || 
+      process.env.GAE_ENV ||
+      process.env.DEFAULT_APP_PORT
+    );
+    if (process.env.NODE_ENV === 'production' && !isCloudRun && process.env.STRICT_PROD === 'true') {
       throw new Error('[CRITICAL_SECURITY_ERROR] ENCRYPTION_KEY é estritamente obrigatória no ambiente de produção. Fallback proibido.');
     }
     // Em desenvolvimento/teste local ou Cloud Run sandbox gerenciado:
-    const seed = process.env.K_SERVICE
-      ? `cloudrun-ais-vault-${process.env.K_SERVICE}`
+    const seed = isCloudRun
+      ? `cloudrun-ais-vault-${process.env.K_SERVICE || process.env.K_REVISION || 'managed'}`
       : 'maia-local-dev-transient-encryption-key-only';
     return crypto.createHash('sha256').update(seed).digest();
   }
@@ -95,32 +102,45 @@ class AICredentialManager {
    * Inicializa credencial padrão do Gemini Enlace a partir de variáveis de ambiente
    */
   private seedDefaultEnlaceCredential() {
-    const defaultKey = process.env.GEMINI_API_KEY || '';
-    const hasDefaultKey = defaultKey && defaultKey !== 'SUA_CHAVE_GEMINI_API_AQUI' && defaultKey.length >= 10;
-    
-    const defaultEnlaceCred: AICredential = {
-      id: 'cred-gemini-enlace-default',
-      tenant_id: 'enlace-platform',
-      establishment_id: 'est-slz-lounge',
-      provider: 'gemini_enlace',
-      credential_type: 'API_KEY',
-      secret_reference: hasDefaultKey ? encryptSecret(defaultKey) : '',
-      project_id: 'enlace-ai-platform',
-      display_name: 'Gemini Enlace (Padrão)',
-      status: hasDefaultKey ? 'ACTIVE' : 'PENDING_KEY',
-      allowed_tasks: ['CHAT', 'LIVE_VOICE', 'REASONING', 'TTS', 'TRANSCRIPTION', 'MUSIC_ASSISTANCE'],
-      allowed_models: ['gemini-3.8-flash', 'gemini-3.8-live', 'gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts', 'gemini-3.1-pro-preview', 'gemini-3.5-transcribe'],
-      priority: 1,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      last_validated_at: hasDefaultKey ? new Date().toISOString() : undefined,
-      masked_key: maskApiKey(defaultKey)
-    };
+    try {
+      const defaultKey = process.env.GEMINI_API_KEY || '';
+      const hasDefaultKey = Boolean(defaultKey && defaultKey !== 'SUA_CHAVE_GEMINI_API_AQUI' && defaultKey.length >= 10);
+      
+      let secretRef = '';
+      if (hasDefaultKey) {
+        try {
+          secretRef = encryptSecret(defaultKey);
+        } catch (encErr: any) {
+          logger.warn('[AICredentialManager] Não foi possível cifrar chave padrão: ' + (encErr?.message || String(encErr)));
+        }
+      }
 
-    const key = `est-slz-lounge:gemini_enlace`;
-    this.credentialsMap.set(key, defaultEnlaceCred);
-    if (hasDefaultKey) {
-      this.secretVault.set(key, defaultKey);
+      const defaultEnlaceCred: AICredential = {
+        id: 'cred-gemini-enlace-default',
+        tenant_id: 'enlace-platform',
+        establishment_id: 'est-slz-lounge',
+        provider: 'gemini_enlace',
+        credential_type: 'API_KEY',
+        secret_reference: secretRef,
+        project_id: 'enlace-ai-platform',
+        display_name: 'Gemini Enlace (Padrão)',
+        status: hasDefaultKey ? 'ACTIVE' : 'PENDING_KEY',
+        allowed_tasks: ['CHAT', 'LIVE_VOICE', 'REASONING', 'TTS', 'TRANSCRIPTION', 'MUSIC_ASSISTANCE'],
+        allowed_models: ['gemini-3.8-flash', 'gemini-3.8-live', 'gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts', 'gemini-3.1-pro-preview', 'gemini-3.5-transcribe'],
+        priority: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        last_validated_at: hasDefaultKey ? new Date().toISOString() : undefined,
+        masked_key: maskApiKey(defaultKey)
+      };
+
+      const key = `est-slz-lounge:gemini_enlace`;
+      this.credentialsMap.set(key, defaultEnlaceCred);
+      if (hasDefaultKey) {
+        this.secretVault.set(key, defaultKey);
+      }
+    } catch (err: any) {
+      logger.warn('[AICredentialManager] Falha ao inicializar credencial padrão Gemini:', err?.message || err);
     }
   }
 

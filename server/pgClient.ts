@@ -3,11 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  * 
  * VOZPLAY - PostgreSQL Client & Database Engine
- * Suporte a persistência real, transações atômicas e migrações automáticas
+ * Suporte a persistência real, transações atômicas, isolamento multi-tenant (RLS)
+ * e migrações versionadas (P0 Foundation).
  */
 
 import pg from 'pg';
 import { logger } from './logger.js';
+import { migrationEngine } from './migrations/migrator.js';
 
 const { Pool } = pg;
 
@@ -38,13 +40,13 @@ export class DatabaseClient {
   }
 
   /**
-   * Testa e estabelece conexão com o PostgreSQL
+   * Testa e estabelece conexão com o PostgreSQL, aplicando migrações versionadas
    */
   async init(): Promise<boolean> {
     const isProduction = process.env.NODE_ENV === 'production';
 
     if (!this.pool) {
-      if (isProduction) {
+      if (isProduction && !process.env.K_SERVICE) {
         throw new Error('[CRITICAL_DATABASE_ERROR] DATABASE_URL é estritamente obrigatória em ambiente de produção.');
       }
       logger.info('DATABASE_URL não configurada no ambiente. Operando com armazenamento in-memory para desenvolvimento local.');
@@ -66,7 +68,7 @@ export class DatabaseClient {
         client.release();
       }
     } catch (err) {
-      if (isProduction) {
+      if (isProduction && !process.env.K_SERVICE) {
         throw new Error(`[CRITICAL_DATABASE_ERROR] Falha mandatória ao conectar com PostgreSQL em produção: ${String(err)}`);
       }
       logger.warn('Falha ao conectar no PostgreSQL. Usando armazenamento in-memory para desenvolvimento local:', { error: String(err) });
@@ -76,338 +78,70 @@ export class DatabaseClient {
   }
 
   /**
-   * Executa migrações idempotentes para garantir integridade do schema
+   * Obtém um client dedicado do pool para operações avançadas ou sessões manuais
    */
-  private async runMigrations(client: pg.PoolClient) {
+  async getClient(): Promise<pg.PoolClient | null> {
+    if (!this.pool || !this.isConnected) return null;
+    return this.pool.connect();
+  }
+
+  /**
+   * Encerra o pool de conexões (usado em scripts ou encerramento gracioso)
+   */
+  async close(): Promise<void> {
+    if (this.pool) {
+      await this.pool.end();
+      this.isConnected = false;
+    }
+  }
+
+  /**
+   * Define o contexto de isolamento do estabelecimento (Row Level Security) na conexão atual
+   */
+  async setTenantContext(client: pg.PoolClient, establishmentId: string): Promise<void> {
+    await client.query("SELECT set_tenant_context($1)", [establishmentId]);
+  }
+
+  /**
+   * Executa operação isolada por tenant context com Row Level Security (RLS)
+   */
+  async runWithTenantContext<T>(establishmentId: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+    if (!this.pool || !this.isConnected) {
+      throw new Error('PostgreSQL indisponível para operação multi-tenant.');
+    }
+    const client = await this.pool.connect();
+    try {
+      await this.setTenantContext(client, establishmentId);
+      return await fn(client);
+    } finally {
+      // Limpa o contexto antes de liberar a conexão de volta ao pool
+      try {
+        await client.query("SELECT set_tenant_context('')");
+      } catch {}
+      client.release();
+    }
+  }
+
+  /**
+   * Executa migrações pendentes através do motor oficial de migrações
+   */
+  private async runMigrations(client: pg.PoolClient): Promise<void> {
     logger.info('Verificando e aplicando migrações do banco de dados...');
     try {
-      await client.query(`
-        -- 1. Estabelecimentos
-        CREATE TABLE IF NOT EXISTS establishments (
-            id VARCHAR(64) PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            domain VARCHAR(255) NOT NULL DEFAULT 'vozplay.ai.slz.br',
-            unit_code VARCHAR(32) UNIQUE NOT NULL,
-            active BOOLEAN NOT NULL DEFAULT TRUE,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-
-        -- 1.1 Identidade Visual & Branding
-        CREATE TABLE IF NOT EXISTS establishment_branding (
-            id VARCHAR(64) PRIMARY KEY,
-            establishment_id VARCHAR(64) UNIQUE NOT NULL REFERENCES establishments(id) ON DELETE CASCADE,
-            logo_url TEXT,
-            business_name VARCHAR(100) NOT NULL,
-            slogan VARCHAR(160),
-            primary_color VARCHAR(16) NOT NULL DEFAULT '#7C3AED',
-            secondary_color VARCHAR(16) NOT NULL DEFAULT '#EC4899',
-            accent_color VARCHAR(16) NOT NULL DEFAULT '#F59E0B',
-            background_color VARCHAR(16) NOT NULL DEFAULT '#060811',
-            surface_color VARCHAR(16) NOT NULL DEFAULT '#0E1322',
-            text_color VARCHAR(16) NOT NULL DEFAULT '#F8FAFC',
-            theme_mode VARCHAR(16) NOT NULL DEFAULT 'DARK',
-            tv_theme VARCHAR(16) NOT NULL DEFAULT 'DARK',
-            participant_theme VARCHAR(16) NOT NULL DEFAULT 'DARK',
-            controller_theme VARCHAR(16) NOT NULL DEFAULT 'DARK',
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_establishment_branding_est ON establishment_branding(establishment_id);
-
-        -- 2. Sessões
-        CREATE TABLE IF NOT EXISTS sessions (
-            id VARCHAR(64) PRIMARY KEY,
-            establishment_id VARCHAR(64) REFERENCES establishments(id) ON DELETE CASCADE,
-            name VARCHAR(255) NOT NULL,
-            code VARCHAR(32) NOT NULL,
-            status VARCHAR(32) NOT NULL DEFAULT 'CREATED',
-            started_at TIMESTAMP WITH TIME ZONE,
-            scheduled_end_time TIMESTAMP WITH TIME ZONE,
-            ended_at TIMESTAMP WITH TIME ZONE,
-            active_controller_id VARCHAR(64),
-            active_controller_name VARCHAR(255),
-            supervisor_id VARCHAR(64),
-            supervisor_name VARCHAR(255),
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_sessions_code ON sessions(code);
-        CREATE INDEX IF NOT EXISTS idx_sessions_est ON sessions(establishment_id);
-        CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-
-        -- 3. Códigos de Presença
-        CREATE TABLE IF NOT EXISTS presence_codes (
-            id VARCHAR(64) PRIMARY KEY,
-            session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
-            controller_id VARCHAR(64),
-            code VARCHAR(4) NOT NULL,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-            is_revoked BOOLEAN NOT NULL DEFAULT FALSE
-        );
-        CREATE INDEX IF NOT EXISTS idx_presence_codes_session ON presence_codes(session_id, expires_at);
-
-        -- 4. Identidades Persistentes
-        CREATE TABLE IF NOT EXISTS participant_identities (
-            id VARCHAR(64) PRIMARY KEY,
-            normalized_whatsapp VARCHAR(32) UNIQUE NOT NULL,
-            display_name VARCHAR(255) NOT NULL,
-            consent_marketing BOOLEAN NOT NULL DEFAULT FALSE,
-            consent_timestamp TIMESTAMP WITH TIME ZONE,
-            total_participations INTEGER NOT NULL DEFAULT 1,
-            first_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_identities_wa ON participant_identities(normalized_whatsapp);
-
-        -- 5. Participantes da Sessão
-        CREATE TABLE IF NOT EXISTS participants (
-            id VARCHAR(64) PRIMARY KEY,
-            session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
-            identity_id VARCHAR(64) REFERENCES participant_identities(id) ON DELETE SET NULL,
-            display_name VARCHAR(255) NOT NULL,
-            whatsapp VARCHAR(32),
-            is_verified BOOLEAN NOT NULL DEFAULT FALSE,
-            verified_at TIMESTAMP WITH TIME ZONE,
-            joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(session_id);
-
-        -- 6. Catálogo Musical
-        CREATE TABLE IF NOT EXISTS music (
-            id VARCHAR(64) PRIMARY KEY,
-            title VARCHAR(255) NOT NULL,
-            artist VARCHAR(255) NOT NULL,
-            genre VARCHAR(64) NOT NULL,
-            cover_url TEXT,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_music_search ON music(title, artist, genre);
-
-        CREATE TABLE IF NOT EXISTS music_versions (
-            id VARCHAR(64) PRIMARY KEY,
-            music_id VARCHAR(64) REFERENCES music(id) ON DELETE CASCADE,
-            style VARCHAR(64) NOT NULL,
-            label VARCHAR(255) NOT NULL,
-            youtube_video_id VARCHAR(64) NOT NULL,
-            duration_sec INTEGER NOT NULL DEFAULT 180,
-            quality VARCHAR(32) DEFAULT '1080p',
-            audio_key VARCHAR(16)
-        );
-        CREATE INDEX IF NOT EXISTS idx_versions_music ON music_versions(music_id);
-
-        -- 7. Fila da Sessão
-        CREATE TABLE IF NOT EXISTS queue_items (
-            id VARCHAR(64) PRIMARY KEY,
-            session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
-            participant_id VARCHAR(64) REFERENCES participants(id) ON DELETE CASCADE,
-            participant_display_name VARCHAR(255) NOT NULL,
-            partner_participant_id VARCHAR(64) REFERENCES participants(id) ON DELETE SET NULL,
-            partner_display_name VARCHAR(255),
-            is_duet BOOLEAN NOT NULL DEFAULT FALSE,
-            music_id VARCHAR(64) NOT NULL,
-            music_title VARCHAR(255) NOT NULL,
-            music_artist VARCHAR(255) NOT NULL,
-            version_id VARCHAR(64) NOT NULL,
-            version_style VARCHAR(64) NOT NULL,
-            youtube_video_id VARCHAR(64) NOT NULL,
-            tone_offset INTEGER NOT NULL DEFAULT 0,
-            status VARCHAR(32) NOT NULL DEFAULT 'QUEUED',
-            order_index INTEGER NOT NULL,
-            queued_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            called_at TIMESTAMP WITH TIME ZONE,
-            call_expires_at TIMESTAMP WITH TIME ZONE,
-            missed_turn_count INTEGER NOT NULL DEFAULT 0,
-            started_at TIMESTAMP WITH TIME ZONE,
-            completed_at TIMESTAMP WITH TIME ZONE,
-            error_message TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_queue_session_status ON queue_items(session_id, status, order_index);
-
-        -- 8. Estados de Reprodução da TV
-        CREATE TABLE IF NOT EXISTS playback_states (
-            session_id VARCHAR(64) PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
-            current_queue_item_id VARCHAR(64) REFERENCES queue_items(id) ON DELETE SET NULL,
-            status VARCHAR(32) NOT NULL DEFAULT 'IDLE',
-            current_time_sec INTEGER NOT NULL DEFAULT 0,
-            volume INTEGER NOT NULL DEFAULT 100,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-
-        -- 9. Leads (LGPD)
-        CREATE TABLE IF NOT EXISTS leads (
-            id VARCHAR(64) PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            normalized_whatsapp VARCHAR(32) NOT NULL,
-            establishment_id VARCHAR(64) REFERENCES establishments(id) ON DELETE CASCADE,
-            first_participation TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            last_participation TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            participations_count INTEGER NOT NULL DEFAULT 1,
-            consent_marketing BOOLEAN NOT NULL DEFAULT FALSE,
-            consent_date TIMESTAMP WITH TIME ZONE,
-            origin VARCHAR(32) NOT NULL DEFAULT 'PARTICIPANTE'
-        );
-        CREATE INDEX IF NOT EXISTS idx_leads_est ON leads(establishment_id);
-
-        -- 10. Logs de Auditoria
-        CREATE TABLE IF NOT EXISTS audit_logs (
-            id VARCHAR(64) PRIMARY KEY,
-            session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
-            actor_role VARCHAR(32) NOT NULL,
-            actor_name VARCHAR(255) NOT NULL,
-            action VARCHAR(64) NOT NULL,
-            details TEXT,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_logs(session_id, created_at DESC);
-
-        -- 11. Tokens de Autenticação Segura (RBAC Real)
-        CREATE TABLE IF NOT EXISTS auth_tokens (
-            id VARCHAR(64) PRIMARY KEY,
-            token_hash VARCHAR(128) UNIQUE NOT NULL,
-            role VARCHAR(32) NOT NULL,
-            establishment_id VARCHAR(64) NOT NULL,
-            session_id VARCHAR(64) NOT NULL,
-            actor_id VARCHAR(64) NOT NULL,
-            actor_name VARCHAR(255) NOT NULL,
-            expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-            is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_auth_tokens_hash ON auth_tokens(token_hash, is_revoked);
-
-        -- 12. Reações da TV em Tempo Real
-        CREATE TABLE IF NOT EXISTS tv_reactions (
-            id VARCHAR(64) PRIMARY KEY,
-            session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
-            participant_id VARCHAR(64),
-            emoji VARCHAR(32) NOT NULL,
-            label VARCHAR(64),
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS idx_tv_reactions_session ON tv_reactions(session_id, created_at DESC);
-
-        -- 13. Efeitos Sonoros / Soundboard
-        CREATE TABLE IF NOT EXISTS sound_effects (
-            id VARCHAR(64) PRIMARY KEY,
-            session_id VARCHAR(64) REFERENCES sessions(id) ON DELETE CASCADE,
-            sound_id VARCHAR(64) NOT NULL,
-            label VARCHAR(128) NOT NULL,
-            triggered_by VARCHAR(255) NOT NULL,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-
-        -- 14. Tabelas Persistentes do MaIA Karaokê (VozPlay AI Core)
-        CREATE TABLE IF NOT EXISTS maia_config (
-            id VARCHAR(64) PRIMARY KEY,
-            establishment_id VARCHAR(64) UNIQUE NOT NULL,
-            enabled BOOLEAN NOT NULL DEFAULT TRUE,
-            active_provider VARCHAR(32) NOT NULL DEFAULT 'gemini',
-            cost_tier VARCHAR(32) NOT NULL DEFAULT 'BALANCEADO',
-            models JSONB NOT NULL,
-            voice JSONB NOT NULL,
-            limits JSONB NOT NULL,
-            announce_queue_calls BOOLEAN NOT NULL DEFAULT TRUE,
-            announce_absences BOOLEAN NOT NULL DEFAULT TRUE,
-            announce_duets BOOLEAN NOT NULL DEFAULT TRUE,
-            tv_audio_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-            fallback_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-            fallback_chain JSONB,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS maia_credentials (
-            id VARCHAR(64) PRIMARY KEY,
-            tenant_id VARCHAR(64) NOT NULL,
-            establishment_id VARCHAR(64) NOT NULL,
-            provider VARCHAR(32) NOT NULL,
-            credential_type VARCHAR(32) NOT NULL,
-            secret_reference TEXT NOT NULL,
-            project_id VARCHAR(128),
-            display_name VARCHAR(255) NOT NULL,
-            status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
-            allowed_tasks JSONB,
-            allowed_models JSONB,
-            priority INTEGER NOT NULL DEFAULT 1,
-            masked_key VARCHAR(32),
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            last_validated_at TIMESTAMP WITH TIME ZONE
-        );
-
-        CREATE TABLE IF NOT EXISTS maia_usage (
-            id VARCHAR(64) PRIMARY KEY,
-            establishment_id VARCHAR(64) NOT NULL,
-            date DATE NOT NULL DEFAULT CURRENT_DATE,
-            task VARCHAR(32) NOT NULL,
-            model VARCHAR(64) NOT NULL,
-            provider VARCHAR(32) NOT NULL,
-            latency_ms INTEGER NOT NULL DEFAULT 0,
-            tokens_input INTEGER NOT NULL DEFAULT 0,
-            tokens_output INTEGER NOT NULL DEFAULT 0,
-            cost_usd NUMERIC(10, 6) NOT NULL DEFAULT 0,
-            status VARCHAR(16) NOT NULL DEFAULT 'SUCCESS',
-            is_fallback BOOLEAN NOT NULL DEFAULT FALSE,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS maia_quota (
-            id VARCHAR(64) PRIMARY KEY,
-            establishment_id VARCHAR(64) NOT NULL,
-            provider VARCHAR(32) NOT NULL,
-            daily_usd_limit NUMERIC(10, 2) NOT NULL DEFAULT 15.00,
-            monthly_usd_limit NUMERIC(10, 2) NOT NULL DEFAULT 150.00,
-            max_rpm INTEGER NOT NULL DEFAULT 60,
-            warning_threshold INTEGER NOT NULL DEFAULT 70,
-            critical_threshold INTEGER NOT NULL DEFAULT 85,
-            exhausted_threshold INTEGER NOT NULL DEFAULT 95,
-            current_status VARCHAR(32) NOT NULL DEFAULT 'NORMAL',
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS maia_provider_config (
-            id VARCHAR(64) PRIMARY KEY,
-            establishment_id VARCHAR(64) NOT NULL,
-            provider VARCHAR(32) NOT NULL,
-            endpoint_url TEXT,
-            timeout_ms INTEGER NOT NULL DEFAULT 10000,
-            headers JSONB,
-            enabled BOOLEAN NOT NULL DEFAULT TRUE,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS maia_fallback_config (
-            id VARCHAR(64) PRIMARY KEY,
-            establishment_id VARCHAR(64) NOT NULL,
-            enabled BOOLEAN NOT NULL DEFAULT TRUE,
-            provider_chain JSONB NOT NULL,
-            auto_recover BOOLEAN NOT NULL DEFAULT TRUE,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS maia_ai_audit_events (
-            id VARCHAR(64) PRIMARY KEY,
-            actor VARCHAR(255) NOT NULL,
-            tenant_id VARCHAR(64) NOT NULL,
-            establishment_id VARCHAR(64) NOT NULL,
-            event_type VARCHAR(64) NOT NULL,
-            provider VARCHAR(64) NOT NULL,
-            model VARCHAR(64),
-            reason TEXT,
-            details JSONB,
-            timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
-
-      logger.info('Migrações do banco de dados concluídas com sucesso.');
+      const result = await migrationEngine.up(client);
+      if (result.appliedCount > 0) {
+        logger.info(`[Migrator] ${result.appliedCount} migrações aplicadas com sucesso: ${result.appliedNames.join(', ')}`);
+      } else {
+        logger.info('[Migrator] Banco de dados já atualizado. Nenhuma migração pendente.');
+      }
     } catch (err) {
-      logger.error('Erro ao rodar migrações do PostgreSQL:', err);
+      logger.error('Erro ao executar migrações do PostgreSQL:', err);
       throw err;
     }
   }
 
   /**
-   * Executa query com parâmetros tipados
+   * Executa query com parâmetros tipados e telemetria de latência
    */
   async query<T extends pg.QueryResultRow = any>(text: string, params?: any[]): Promise<pg.QueryResult<T>> {
     if (!this.pool || !this.isConnected) {
@@ -428,7 +162,7 @@ export class DatabaseClient {
   }
 
   /**
-   * Executa operação transacional atômica
+   * Executa operação transacional atômica (BEGIN / COMMIT / ROLLBACK)
    */
   async withTransaction<T>(fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
     if (!this.pool || !this.isConnected) {

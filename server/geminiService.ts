@@ -473,9 +473,9 @@ ${participantName ? `Nome do cantor(a): "${participantName}".` : ''}
 Gere um título criativo para a playlist, uma breve descrição entusiasmada, uma tag de vibe (ex: '🔥 Fervo Total' ou '🎤 Hinos Imortais') e a lista detalhada de faixas recomendadas.`;
 
   try {
-    const modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-    const response = await ai.models.generateContent({
+    const generatePromise = ai.models.generateContent({
       model: modelName,
       contents: promptText,
       config: {
@@ -525,6 +525,12 @@ Gere um título criativo para a playlist, uma breve descrição entusiasmada, um
         },
       },
     });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout ao aguardar resposta da API Gemini (5s)')), 5000)
+    );
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
 
     const text = response.text;
     if (!text) {

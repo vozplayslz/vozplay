@@ -1605,7 +1605,8 @@ apiRouter.get('/supervisor/qrcode', (req, res) => {
 
 // Section 47 & RBAC: Gestão de Usuários Operacionais e Credenciais
 apiRouter.get('/supervisor/users', requireRole(['SUPERVISOR']), async (req, res) => {
-  const users = authService.getOperationalUsers();
+  const estId = req.user?.establishmentId || db.session.establishmentId;
+  const users = await authService.getOperationalUsers(estId);
   res.json({
     success: true,
     data: {

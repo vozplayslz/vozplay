@@ -33,8 +33,15 @@ export function validateEnvironment(allowThrow = false): void {
       if (allowThrow || process.env.STARTUP_TEST === 'true') {
         throw new Error(errorMsg);
       }
-      if (process.env.K_SERVICE) {
-        logger.warn(`[VozPlay Cloud Run] Ambiente Cloud Run ativo (${process.env.K_SERVICE}) sem secrets injetados externamente. O servidor responderá liveness normalmente, mas readiness indicará NOT_READY até o provisionamento.`);
+      const isCloudRun = Boolean(
+        process.env.K_SERVICE || 
+        process.env.K_REVISION || 
+        process.env.CLOUD_RUN_TIMEOUT_SECONDS || 
+        process.env.GAE_ENV ||
+        process.env.DEFAULT_APP_PORT
+      );
+      if (isCloudRun) {
+        logger.warn(`[VozPlay Cloud Run] Ambiente Cloud Run ativo (${process.env.K_SERVICE || 'container'}) sem secrets injetados externamente. O servidor responderá liveness normalmente, mas readiness indicará NOT_READY até o provisionamento.`);
         return;
       }
       process.exit(1);

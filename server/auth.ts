@@ -32,6 +32,7 @@ export interface AuthSession {
 
 export interface OperationalUser {
   id: string;
+  establishmentId: string;
   name: string;
   email: string;
   role: 'SUPERVISOR' | 'CONTROLLER' | 'SYSTEM_ADMIN';
@@ -61,13 +62,22 @@ class AuthService {
   /**
    * Inicializa credenciais com Argon2id controlado unicamente pelo ciclo de bootstrap
    */
-  public async initDefaultCredentials(): Promise<void> {
+  public async initDefaultCredentials(establishmentId?: string): Promise<void> {
     const isProduction = process.env.NODE_ENV === 'production';
     const supervisorPass = process.env.SUPERVISOR_PASSWORD;
     const controllerPass = process.env.CONTROLLER_PASSWORD;
+    const estId = establishmentId || process.env.DEFAULT_ESTABLISHMENT_ID || 'est-default';
+
+    const isCloudRun = Boolean(
+      process.env.K_SERVICE || 
+      process.env.K_REVISION || 
+      process.env.CLOUD_RUN_TIMEOUT_SECONDS || 
+      process.env.GAE_ENV ||
+      process.env.DEFAULT_APP_PORT
+    );
 
     if (isProduction && (!supervisorPass || !controllerPass)) {
-      if (process.env.K_SERVICE) {
+      if (isCloudRun) {
         logger.warn('[VozPlay Auth] Cloud Run sem credenciais de produção injetadas. Usuários mestres aguardam configuração de secrets.');
         this.isInitialized = true;
         return;
@@ -75,10 +85,24 @@ class AuthService {
       throw new Error('[CRITICAL_AUTH_ERROR] SUPERVISOR_PASSWORD e CONTROLLER_PASSWORD são estritamente obrigatórias em produção.');
     }
 
+    if (pgClient.isConnected) {
+      try {
+        await pgClient.query(
+          `INSERT INTO establishments (id, name, domain, unit_code, active)
+           VALUES ($1, $2, $3, $4, TRUE)
+           ON CONFLICT (id) DO NOTHING`,
+          [estId, 'VozPlay Unidade Principal', 'vozplay.ai.slz.br', 'unit-main']
+        );
+      } catch (err: any) {
+        logger.warn('[VozPlay Auth] Aviso ao garantir estabelecimento padrão: ' + (err?.message || String(err)));
+      }
+    }
+
     if (supervisorPass) {
       const superHash = await this.hashPassword(supervisorPass);
       const adminUser: OperationalUser = {
         id: 'usr-admin-master',
+        establishmentId: estId,
         name: 'Supervisor / Administrador Geral',
         email: 'admin@vozplay.ai.slz.br',
         role: 'SUPERVISOR',
@@ -86,12 +110,26 @@ class AuthService {
         createdAt: new Date().toISOString()
       };
       this.operationalUsers.set(adminUser.id, adminUser);
+
+      if (pgClient.isConnected) {
+        try {
+          await pgClient.query(
+            `INSERT INTO users (id, establishment_id, name, email, role, password_hash, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+            [adminUser.id, estId, adminUser.name, adminUser.email, adminUser.role, adminUser.passwordHash, adminUser.createdAt]
+          );
+        } catch (err) {
+          logger.error('Erro ao persistir usuário master no PostgreSQL:', err);
+        }
+      }
     }
 
     if (controllerPass) {
       const ctrlHash = await this.hashPassword(controllerPass);
       const ctrlUser: OperationalUser = {
         id: 'usr-ctrl-booth',
+        establishmentId: estId,
         name: 'Operador de Mesa de Som',
         email: 'operador@vozplay.ai.slz.br',
         role: 'CONTROLLER',
@@ -99,6 +137,42 @@ class AuthService {
         createdAt: new Date().toISOString()
       };
       this.operationalUsers.set(ctrlUser.id, ctrlUser);
+
+      if (pgClient.isConnected) {
+        try {
+          await pgClient.query(
+            `INSERT INTO users (id, establishment_id, name, email, role, password_hash, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
+            [ctrlUser.id, estId, ctrlUser.name, ctrlUser.email, ctrlUser.role, ctrlUser.passwordHash, ctrlUser.createdAt]
+          );
+        } catch (err) {
+          logger.error('Erro ao persistir operador de som no PostgreSQL:', err);
+        }
+      }
+    }
+
+    // Hidrata cache de usuários a partir do PostgreSQL
+    if (pgClient.isConnected) {
+      try {
+        const res = await pgClient.query(
+          'SELECT id, establishment_id, name, email, role, password_hash, created_at, last_login FROM users'
+        );
+        for (const row of res.rows) {
+          this.operationalUsers.set(row.id, {
+            id: row.id,
+            establishmentId: row.establishment_id || estId,
+            name: row.name,
+            email: row.email,
+            role: row.role,
+            passwordHash: row.password_hash,
+            createdAt: row.created_at,
+            lastLogin: row.last_login
+          });
+        }
+      } catch (err) {
+        logger.error('Erro ao hidratar usuários operacionais do PostgreSQL:', err);
+      }
     }
 
     this.isInitialized = true;
@@ -127,27 +201,56 @@ class AuthService {
     }
   }
 
-  getOperationalUsers(): Omit<OperationalUser, 'passwordHash'>[] {
-    return Array.from(this.operationalUsers.values()).map(u => ({
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      role: u.role,
-      createdAt: u.createdAt,
-      lastLogin: u.lastLogin
-    }));
+  async getOperationalUsers(establishmentId?: string): Promise<Omit<OperationalUser, 'passwordHash'>[]> {
+    if (pgClient.isConnected) {
+      try {
+        const queryText = establishmentId
+          ? 'SELECT id, establishment_id, name, email, role, created_at, last_login FROM users WHERE establishment_id = $1 ORDER BY created_at ASC'
+          : 'SELECT id, establishment_id, name, email, role, created_at, last_login FROM users ORDER BY created_at ASC';
+        const params = establishmentId ? [establishmentId] : [];
+        const res = await pgClient.query(queryText, params);
+        if (res.rows.length > 0) {
+          return res.rows.map(r => ({
+            id: r.id,
+            establishmentId: r.establishment_id,
+            name: r.name,
+            email: r.email,
+            role: r.role,
+            createdAt: r.created_at,
+            lastLogin: r.last_login
+          }));
+        }
+      } catch (err) {
+        logger.error('Erro ao buscar usuários operacionais no PostgreSQL:', err);
+      }
+    }
+
+    return Array.from(this.operationalUsers.values())
+      .filter(u => !establishmentId || u.establishmentId === establishmentId)
+      .map(u => ({
+        id: u.id,
+        establishmentId: u.establishmentId,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        createdAt: u.createdAt,
+        lastLogin: u.lastLogin
+      }));
   }
 
   async createOperationalUser(data: {
+    establishmentId?: string;
     name: string;
     email: string;
     role: 'SUPERVISOR' | 'CONTROLLER' | 'SYSTEM_ADMIN';
     password: string;
   }): Promise<Omit<OperationalUser, 'passwordHash'>> {
+    const estId = data.establishmentId || process.env.DEFAULT_ESTABLISHMENT_ID || 'est-default';
     const id = 'usr-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
     const passwordHash = await this.hashPassword(data.password);
     const user: OperationalUser = {
       id,
+      establishmentId: estId,
       name: data.name.trim(),
       email: data.email.toLowerCase().trim(),
       role: data.role,
@@ -159,10 +262,17 @@ class AuthService {
     if (pgClient.isConnected) {
       try {
         await pgClient.query(
+          `INSERT INTO establishments (id, name, domain, unit_code, active)
+           VALUES ($1, $2, $3, $4, TRUE)
+           ON CONFLICT (id) DO NOTHING`,
+          [estId, 'VozPlay Estabelecimento Operacional', 'vozplay.ai.slz.br', 'unit-' + estId.slice(-6)]
+        );
+
+        await pgClient.query(
           `INSERT INTO users (id, establishment_id, name, email, role, password_hash, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, name = EXCLUDED.name`,
-          [id, 'est-slz-lounge', user.name, user.email, user.role, user.passwordHash, user.createdAt]
+           ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, name = EXCLUDED.name, role = EXCLUDED.role`,
+          [id, estId, user.name, user.email, user.role, user.passwordHash, user.createdAt]
         );
       } catch (err) {
         logger.error('Erro ao persistir novo usuário operacional no PostgreSQL:', err);
@@ -171,12 +281,14 @@ class AuthService {
 
     logger.audit(`Novo usuário operacional cadastrado: ${user.name} (${user.role})`, {
       userId: id,
+      establishmentId: estId,
       email: user.email,
       role: user.role
     });
 
     return {
       id: user.id,
+      establishmentId: user.establishmentId,
       name: user.name,
       email: user.email,
       role: user.role,
@@ -184,14 +296,29 @@ class AuthService {
     };
   }
 
-  async deleteOperationalUser(id: string): Promise<boolean> {
+  async deleteOperationalUser(id: string, establishmentId?: string): Promise<boolean> {
     const user = this.operationalUsers.get(id);
-    if (!user) return false;
+    if (!user) {
+      if (pgClient.isConnected) {
+        try {
+          const res = await pgClient.query('DELETE FROM users WHERE id = $1', [id]);
+          return (res.rowCount || 0) > 0;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    }
+
     this.operationalUsers.delete(id);
 
     if (pgClient.isConnected) {
       try {
-        await pgClient.query('DELETE FROM users WHERE id = $1', [id]);
+        const queryText = establishmentId
+          ? 'DELETE FROM users WHERE id = $1 AND establishment_id = $2'
+          : 'DELETE FROM users WHERE id = $1';
+        const params = establishmentId ? [id, establishmentId] : [id];
+        await pgClient.query(queryText, params);
       } catch (err) {
         logger.error('Erro ao deletar usuário operacional no PostgreSQL:', err);
       }
@@ -201,12 +328,20 @@ class AuthService {
     return true;
   }
 
-  async updateMasterPassword(role: 'SUPERVISOR' | 'CONTROLLER', newPassword: string): Promise<boolean> {
+  async logout(token: string): Promise<boolean> {
+    if (!token) return false;
+    await this.revokeToken(token);
+    logger.audit('Logout efetuado com sucesso (token revogado)');
+    return true;
+  }
+
+  async updateMasterPassword(role: 'SUPERVISOR' | 'CONTROLLER', newPassword: string, establishmentId?: string): Promise<boolean> {
+    const estId = establishmentId || process.env.DEFAULT_ESTABLISHMENT_ID || 'est-default';
     const newHash = await this.hashPassword(newPassword);
     let updated = false;
 
     for (const u of this.operationalUsers.values()) {
-      if (u.role === role) {
+      if (u.role === role && (!establishmentId || u.establishmentId === establishmentId)) {
         u.passwordHash = newHash;
         updated = true;
       }
@@ -216,6 +351,7 @@ class AuthService {
       const id = 'usr-' + role.toLowerCase() + '-master';
       this.operationalUsers.set(id, {
         id,
+        establishmentId: estId,
         name: role === 'SUPERVISOR' ? 'Supervisor Master' : 'Controlador Master',
         email: `${role.toLowerCase()}@vozplay.ai.slz.br`,
         role,
@@ -226,7 +362,11 @@ class AuthService {
 
     if (pgClient.isConnected) {
       try {
-        await pgClient.query('UPDATE users SET password_hash = $1 WHERE role = $2', [newHash, role]);
+        const queryText = establishmentId
+          ? 'UPDATE users SET password_hash = $1 WHERE role = $2 AND establishment_id = $3'
+          : 'UPDATE users SET password_hash = $1 WHERE role = $2';
+        const params = establishmentId ? [newHash, role, establishmentId] : [newHash, role];
+        await pgClient.query(queryText, params);
       } catch (err) {
         logger.error('Erro ao atualizar senha no PostgreSQL:', err);
       }
@@ -236,30 +376,24 @@ class AuthService {
     return true;
   }
 
-  async findUserByCredentials(emailOrRole: string, password: string): Promise<OperationalUser | null> {
+  async findUserByCredentials(emailOrRole: string, password: string, establishmentId?: string): Promise<OperationalUser | null> {
     if (!password) return null;
 
-    // 1. Checa usuários em memória
-    for (const u of this.operationalUsers.values()) {
-      if (u.email.toLowerCase() === emailOrRole.toLowerCase() || u.role === emailOrRole) {
-        const matches = await this.verifyPassword(u.passwordHash, password);
-        if (matches) return u;
-      }
-    }
-
-    // 2. Checa PostgreSQL se conectado
+    // 1. Checa PostgreSQL com prioridade autoritativa
     if (pgClient.isConnected) {
       try {
-        const res = await pgClient.query(
-          'SELECT id, name, email, role, password_hash, created_at, last_login FROM users WHERE email = $1 OR role = $1',
-          [emailOrRole]
-        );
+        const queryText = establishmentId
+          ? 'SELECT id, establishment_id, name, email, role, password_hash, created_at, last_login FROM users WHERE (email = $1 OR role = $1) AND (establishment_id = $2 OR role = \'SYSTEM_ADMIN\')'
+          : 'SELECT id, establishment_id, name, email, role, password_hash, created_at, last_login FROM users WHERE email = $1 OR role = $1';
+        const params = establishmentId ? [emailOrRole, establishmentId] : [emailOrRole];
+        const res = await pgClient.query(queryText, params);
         if (res.rows.length > 0) {
           const row = res.rows[0];
           const matches = await this.verifyPassword(row.password_hash, password);
           if (matches) {
             const user: OperationalUser = {
               id: row.id,
+              establishmentId: row.establishment_id,
               name: row.name,
               email: row.email,
               role: row.role,
@@ -273,6 +407,17 @@ class AuthService {
         }
       } catch (err) {
         logger.error('Erro ao consultar usuário operacional no PostgreSQL:', err);
+      }
+    }
+
+    // 2. Checa cache em memória
+    for (const u of this.operationalUsers.values()) {
+      if (
+        (u.email.toLowerCase() === emailOrRole.toLowerCase() || u.role === emailOrRole) &&
+        (!establishmentId || u.establishmentId === establishmentId || u.role === 'SYSTEM_ADMIN')
+      ) {
+        const matches = await this.verifyPassword(u.passwordHash, password);
+        if (matches) return u;
       }
     }
 
@@ -447,10 +592,26 @@ class AuthService {
   /**
    * Autenticação de credencial do Supervisor (Argon2id estrito, sem fallback hardcoded)
    */
-  async verifySupervisorPassword(password: string): Promise<boolean> {
+  async verifySupervisorPassword(password: string, establishmentId?: string): Promise<boolean> {
     if (!password) return false;
+    if (pgClient.isConnected) {
+      try {
+        const queryText = establishmentId
+          ? 'SELECT password_hash FROM users WHERE (role = \'SUPERVISOR\' OR role = \'SYSTEM_ADMIN\') AND (establishment_id = $1 OR role = \'SYSTEM_ADMIN\')'
+          : 'SELECT password_hash FROM users WHERE role = \'SUPERVISOR\' OR role = \'SYSTEM_ADMIN\'';
+        const params = establishmentId ? [establishmentId] : [];
+        const res = await pgClient.query(queryText, params);
+        for (const row of res.rows) {
+          if (await this.verifyPassword(row.password_hash, password)) {
+            return true;
+          }
+        }
+      } catch (err) {
+        logger.error('Erro ao verificar senha de supervisor no PostgreSQL:', err);
+      }
+    }
     for (const u of this.operationalUsers.values()) {
-      if (u.role === 'SUPERVISOR' || u.role === 'SYSTEM_ADMIN') {
+      if ((u.role === 'SUPERVISOR' || u.role === 'SYSTEM_ADMIN') && (!establishmentId || u.establishmentId === establishmentId || u.role === 'SYSTEM_ADMIN')) {
         const matches = await this.verifyPassword(u.passwordHash, password);
         if (matches) return true;
       }
@@ -461,10 +622,26 @@ class AuthService {
   /**
    * Autenticação de credencial do Controlador (Argon2id estrito, sem fallback hardcoded)
    */
-  async verifyControllerPassword(password: string): Promise<boolean> {
+  async verifyControllerPassword(password: string, establishmentId?: string): Promise<boolean> {
     if (!password) return false;
+    if (pgClient.isConnected) {
+      try {
+        const queryText = establishmentId
+          ? 'SELECT password_hash FROM users WHERE role = \'CONTROLLER\' AND (establishment_id = $1 OR establishment_id IS NULL)'
+          : 'SELECT password_hash FROM users WHERE role = \'CONTROLLER\'';
+        const params = establishmentId ? [establishmentId] : [];
+        const res = await pgClient.query(queryText, params);
+        for (const row of res.rows) {
+          if (await this.verifyPassword(row.password_hash, password)) {
+            return true;
+          }
+        }
+      } catch (err) {
+        logger.error('Erro ao verificar senha de controlador no PostgreSQL:', err);
+      }
+    }
     for (const u of this.operationalUsers.values()) {
-      if (u.role === 'CONTROLLER') {
+      if (u.role === 'CONTROLLER' && (!establishmentId || u.establishmentId === establishmentId)) {
         const matches = await this.verifyPassword(u.passwordHash, password);
         if (matches) return true;
       }

@@ -134,14 +134,17 @@ export class GeminiProvider implements AIProvider {
 
     // 6. Resposta Válida (Probe real com timeout de segurança)
     try {
-      const probeResponse = await client.models.generateContent({
-        model: modelToTest,
-        contents: 'Diga OK em uma palavra.',
-        config: {
-          maxOutputTokens: 10,
-          temperature: 0.1
-        }
-      });
+      const probeResponse = await Promise.race([
+        client.models.generateContent({
+          model: modelToTest,
+          contents: 'Diga OK em uma palavra.',
+          config: {
+            maxOutputTokens: 10,
+            temperature: 0.1
+          }
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Probe timeout (3s)')), 3000))
+      ]);
 
       const reply = probeResponse.text?.trim() || '';
       const success = reply.length > 0;
@@ -208,7 +211,7 @@ export class GeminiProvider implements AIProvider {
     options?: { systemInstruction?: string; model?: string; maxTokens?: number }
   ): Promise<string> {
     const client = this.initClient();
-    const model = options?.model || 'gemini-3.8-flash';
+    const model = options?.model === 'gemini-3.8-flash' ? 'gemini-2.5-flash' : (options?.model || 'gemini-2.5-flash');
 
     if (!client) {
       logger.info('[GeminiProvider] Chave de API ausente ou não configurada. Retornando resposta padrão de contingência.');
@@ -216,30 +219,36 @@ export class GeminiProvider implements AIProvider {
     }
 
     try {
-      const response = await client.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          systemInstruction: options?.systemInstruction,
-          temperature: 0.7,
-          maxOutputTokens: options?.maxTokens || 600,
-        }
-      });
+      const response = await Promise.race([
+        client.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            systemInstruction: options?.systemInstruction,
+            temperature: 0.7,
+            maxOutputTokens: options?.maxTokens || 600,
+          }
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Chat timeout (4s)')), 4000))
+      ]);
 
       return response.text || 'Olá! A MaIA Karaokê tá pronta pra animar sua noite!';
     } catch (err: any) {
-      // Se gemini-3.8-flash estiver sobrecarregado (503), tenta gemini-flash-latest como rota de redundância
-      if (model !== 'gemini-flash-latest') {
+      // Se sobrecarregado ou erro, tenta rota de redundância rápida com timeout rígido
+      if (model !== 'gemini-2.5-flash') {
         try {
-          const fallbackRes = await client.models.generateContent({
-            model: 'gemini-flash-latest',
-            contents: prompt,
-            config: {
-              systemInstruction: options?.systemInstruction,
-              temperature: 0.7,
-              maxOutputTokens: options?.maxTokens || 600,
-            }
-          });
+          const fallbackRes = await Promise.race([
+            client.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: prompt,
+              config: {
+                systemInstruction: options?.systemInstruction,
+                temperature: 0.7,
+                maxOutputTokens: options?.maxTokens || 600,
+              }
+            }),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Fallback timeout (2s)')), 2000))
+          ]);
           if (fallbackRes.text) {
             return fallbackRes.text;
           }
@@ -286,18 +295,21 @@ export class GeminiProvider implements AIProvider {
     }
 
     try {
-      const response = await client.models.generateContent({
-        model,
-        contents: request.text,
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName }
+      const response = await Promise.race([
+        client.models.generateContent({
+          model,
+          contents: request.text,
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName }
+              }
             }
           }
-        }
-      });
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('TTS timeout (4s)')), 4000))
+      ]);
 
       const audioPart = response.candidates?.[0]?.content?.parts?.[0];
       const audioBase64 = audioPart?.inlineData?.data || null;
