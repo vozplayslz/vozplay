@@ -196,6 +196,7 @@ export interface MaIAToolContext {
   actorRole: MaIAActorRole;
   actorName: string;
   actorId?: string;
+  confirmed?: boolean;
 }
 
 export type MaIAToolCategory = 'READ' | 'ACTION' | 'HIGH_RISK' | 'CRITICAL';

@@ -99,27 +99,71 @@ export class DatabaseClient {
    * Define o contexto de isolamento do estabelecimento (Row Level Security) na conexão atual
    */
   async setTenantContext(client: pg.PoolClient, establishmentId: string): Promise<void> {
-    await client.query("SELECT set_tenant_context($1)", [establishmentId]);
+    if (!establishmentId || typeof establishmentId !== 'string' || !establishmentId.trim()) {
+      throw new Error('[CRITICAL_SECURITY_ERROR] Identificador de estabelecimento inválido ou vazio para contexto RLS.');
+    }
+    await client.query("SELECT set_tenant_context($1)", [establishmentId.trim()]);
   }
 
   /**
-   * Executa operação isolada por tenant context com Row Level Security (RLS)
+   * Limpa o contexto de isolamento do estabelecimento na conexão atual
+   */
+  async clearTenantContext(client: pg.PoolClient): Promise<void> {
+    try {
+      await client.query("SELECT clear_tenant_context()");
+    } catch {
+      await client.query("RESET app.current_establishment_id").catch(() => {});
+    }
+  }
+
+  /**
+   * Executa operação isolada por tenant context com Row Level Security (RLS) dentro de transação atômica (BEGIN / COMMIT / ROLLBACK)
    */
   async runWithTenantContext<T>(establishmentId: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+    if (!establishmentId || typeof establishmentId !== 'string' || !establishmentId.trim()) {
+      throw new Error('[CRITICAL_SECURITY_ERROR] Identificador de estabelecimento obrigatório para operação multi-tenant.');
+    }
+
     if (!this.pool || !this.isConnected) {
       throw new Error('PostgreSQL indisponível para operação multi-tenant.');
     }
+
     const client = await this.pool.connect();
     try {
+      await client.query('BEGIN');
       await this.setTenantContext(client, establishmentId);
-      return await fn(client);
-    } finally {
-      // Limpa o contexto antes de liberar a conexão de volta ao pool
+      const result = await fn(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
       try {
-        await client.query("SELECT set_tenant_context('')");
-      } catch {}
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        logger.error('Erro ao executar ROLLBACK na transação de tenant:', rollbackErr);
+      }
+      throw err;
+    } finally {
+      // Limpeza mandatória: remove contexto e descarta estado temporário da sessão
+      try {
+        await this.clearTenantContext(client);
+      } catch (clearErr) {
+        logger.warn('Aviso ao limpar contexto de tenant na liberação: ' + String(clearErr));
+      }
       client.release();
     }
+  }
+
+  /**
+   * Executa uma consulta isolada protegida por contexto de tenant
+   */
+  async queryWithTenant<T extends pg.QueryResultRow = any>(
+    establishmentId: string,
+    text: string,
+    params?: any[]
+  ): Promise<pg.QueryResult<T>> {
+    return this.runWithTenantContext(establishmentId, async (client) => {
+      return client.query<T>(text, params);
+    });
   }
 
   /**

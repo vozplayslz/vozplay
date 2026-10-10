@@ -24,9 +24,10 @@
     "test:autonomy": "tsx scripts/verify-autonomy.ts",
     "test:hardening": "tsx scripts/verify-hardening.ts",
     "test:blockers": "tsx scripts/verify-blockers-hardening.ts",
+    "test:prompt01": "tsx scripts/verify-prompt01-foundation.ts",
     "test:integration": "tsx scripts/verify-integration.ts",
     "test:e2e": "tsx scripts/verify-e2e-matrix.ts",
-    "test": "tsx scripts/verify-maia-core.ts && tsx scripts/verify-context-engine.ts && tsx scripts/verify-tool-registry.ts && tsx scripts/verify-event-bus-perception.ts && tsx scripts/verify-memory-engine.ts && tsx scripts/verify-ai-router.ts && tsx scripts/verify-agent-runtime.ts && tsx scripts/verify-voice.ts && tsx scripts/verify-autonomy.ts && tsx scripts/verify-hardening.ts && tsx scripts/verify-blockers-hardening.ts && tsx scripts/verify-integration.ts && tsx scripts/verify-e2e-matrix.ts"
+    "test": "tsx scripts/verify-prompt01-foundation.ts && tsx scripts/verify-maia-core.ts && tsx scripts/verify-context-engine.ts && tsx scripts/verify-tool-registry.ts && tsx scripts/verify-event-bus-perception.ts && tsx scripts/verify-memory-engine.ts && tsx scripts/verify-ai-router.ts && tsx scripts/verify-agent-runtime.ts && tsx scripts/verify-voice.ts && tsx scripts/verify-autonomy.ts && tsx scripts/verify-hardening.ts && tsx scripts/verify-blockers-hardening.ts && tsx scripts/verify-integration.ts && tsx scripts/verify-e2e-matrix.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

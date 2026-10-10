@@ -577,6 +577,7 @@ export interface DeviceInfo {
 class VozPlayDB {
   public catalog: Music[] = [...INITIAL_CATALOG];
   public session: Session;
+  public sessions: Map<string, Session> = new Map();
   public presenceCode: PresenceCode;
   public participants: Map<string, Participant> = new Map();
   public identities: Map<string, ParticipantIdentity> = new Map(); // normalizedWhatsapp -> Identity
@@ -646,6 +647,7 @@ class VozPlayDB {
     };
 
     this.presenceCode = this.generateNewPresenceCode();
+    this.sessions.set(this.session.id, this.session);
 
     this.playbackState = {
       status: 'IDLE',
@@ -659,6 +661,48 @@ class VozPlayDB {
     if (isDemoSeed) {
       this.seedInitialSessionData();
     }
+  }
+
+  /**
+   * Valida se um identificador de estabelecimento é válido e ativo no sistema
+   */
+  public isEstablishmentValid(establishmentId: string): boolean {
+    if (!establishmentId || typeof establishmentId !== 'string' || !establishmentId.trim()) return false;
+    const cleanId = establishmentId.trim();
+    if (this.session && this.session.establishmentId === cleanId) return true;
+    if (this.brandings.has(cleanId)) return true;
+    for (const sess of this.sessions.values()) {
+      if (sess.establishmentId === cleanId) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Retorna a sessão para um estabelecimento ou ID de sessão específico sem acoplamento a estado global único
+   */
+  public getSession(sessionId?: string, establishmentId?: string): Session | undefined {
+    if (!sessionId) {
+      if (establishmentId) {
+        for (const s of this.sessions.values()) {
+          if (s.establishmentId === establishmentId && s.status === 'ACTIVE') return s;
+        }
+        if (this.session && this.session.establishmentId === establishmentId) return this.session;
+      }
+      return this.session;
+    }
+    const found = this.sessions.get(sessionId) || (this.session && this.session.id === sessionId ? this.session : undefined);
+    if (!found) return undefined;
+    if (establishmentId && found.establishmentId !== establishmentId) return undefined;
+    return found;
+  }
+
+  /**
+   * Valida se uma sessão informada pertence e está ativa para o estabelecimento especificado
+   */
+  public isSessionValidForEstablishment(sessionId: string, establishmentId: string): boolean {
+    if (!sessionId || !establishmentId) return false;
+    const s = this.getSession(sessionId, establishmentId);
+    return Boolean(s && s.status === 'ACTIVE');
   }
 
   /**
@@ -829,36 +873,38 @@ class VozPlayDB {
   public async persistSession(session: Session): Promise<void> {
     if (!pgClient.isConnected) return;
     try {
-      await pgClient.query(
-        `INSERT INTO sessions (
-          id, establishment_id, name, code, status, started_at, scheduled_end_time,
-          ended_at, active_controller_id, active_controller_name, supervisor_id, supervisor_name
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          status = EXCLUDED.status,
-          started_at = EXCLUDED.started_at,
-          scheduled_end_time = EXCLUDED.scheduled_end_time,
-          ended_at = EXCLUDED.ended_at,
-          active_controller_id = EXCLUDED.active_controller_id,
-          active_controller_name = EXCLUDED.active_controller_name,
-          supervisor_id = EXCLUDED.supervisor_id,
-          supervisor_name = EXCLUDED.supervisor_name`,
-        [
-          session.id,
-          session.establishmentId,
-          session.name,
-          session.code,
-          session.status,
-          session.startedAt || null,
-          session.scheduledEndTime || null,
-          session.endedAt || null,
-          session.activeControllerId || null,
-          session.activeControllerName || null,
-          session.supervisorId || null,
-          session.supervisorName || null
-        ]
-      );
+      await pgClient.runWithTenantContext(session.establishmentId, async (client) => {
+        await client.query(
+          `INSERT INTO sessions (
+            id, establishment_id, name, code, status, started_at, scheduled_end_time,
+            ended_at, active_controller_id, active_controller_name, supervisor_id, supervisor_name
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            status = EXCLUDED.status,
+            started_at = EXCLUDED.started_at,
+            scheduled_end_time = EXCLUDED.scheduled_end_time,
+            ended_at = EXCLUDED.ended_at,
+            active_controller_id = EXCLUDED.active_controller_id,
+            active_controller_name = EXCLUDED.active_controller_name,
+            supervisor_id = EXCLUDED.supervisor_id,
+            supervisor_name = EXCLUDED.supervisor_name`,
+          [
+            session.id,
+            session.establishmentId,
+            session.name,
+            session.code,
+            session.status,
+            session.startedAt || null,
+            session.scheduledEndTime || null,
+            session.endedAt || null,
+            session.activeControllerId || null,
+            session.activeControllerName || null,
+            session.supervisorId || null,
+            session.supervisorName || null
+          ]
+        );
+      });
     } catch (err) {
       logger.error('Erro ao persistir sessão no PostgreSQL:', err);
       throw err;
@@ -875,51 +921,60 @@ class VozPlayDB {
       }
     }
 
+    const estId = item.establishmentId || this.getSession(item.sessionId)?.establishmentId || this.session.establishmentId;
+    if (!item.establishmentId) {
+      item.establishmentId = estId;
+    }
+
     if (!pgClient.isConnected) return;
     try {
-      await pgClient.query(
-        `INSERT INTO queue_items (
-          id, session_id, participant_id, participant_display_name, partner_participant_id,
-          partner_display_name, is_duet, music_id, music_title, music_artist, version_id,
-          version_style, youtube_video_id, tone_offset, status, order_index, queued_at,
-          called_at, call_expires_at, missed_turn_count, started_at, completed_at, error_message
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
-        ON CONFLICT (id) DO UPDATE SET
-          status = EXCLUDED.status,
-          tone_offset = EXCLUDED.tone_offset,
-          order_index = EXCLUDED.order_index,
-          called_at = EXCLUDED.called_at,
-          call_expires_at = EXCLUDED.call_expires_at,
-          missed_turn_count = EXCLUDED.missed_turn_count,
-          started_at = EXCLUDED.started_at,
-          completed_at = EXCLUDED.completed_at,
-          error_message = EXCLUDED.error_message`,
-        [
-          item.id,
-          item.sessionId,
-          item.participantId,
-          item.participantDisplayName,
-          item.partnerParticipantId || null,
-          item.partnerDisplayName || null,
-          item.isDuet || false,
-          item.musicId,
-          item.musicTitle,
-          item.musicArtist,
-          item.versionId,
-          item.versionStyle,
-          item.youtubeVideoId,
-          item.toneOffset || 0,
-          item.status,
-          item.orderIndex,
-          item.queuedAt,
-          item.calledAt || null,
-          item.callExpiresAt || null,
-          item.missedTurnCount || 0,
-          item.startedAt || null,
-          item.completedAt || null,
-          item.errorMessage || null
-        ]
-      );
+      await pgClient.runWithTenantContext(estId, async (client) => {
+        await client.query(
+          `INSERT INTO queue_items (
+            id, session_id, establishment_id, participant_id, participant_display_name, partner_participant_id,
+            partner_display_name, is_duet, music_id, music_title, music_artist, version_id,
+            version_style, youtube_video_id, tone_offset, status, order_index, queued_at,
+            called_at, call_expires_at, missed_turn_count, started_at, completed_at, error_message
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+          ON CONFLICT (id) DO UPDATE SET
+            status = EXCLUDED.status,
+            establishment_id = COALESCE(EXCLUDED.establishment_id, queue_items.establishment_id),
+            tone_offset = EXCLUDED.tone_offset,
+            order_index = EXCLUDED.order_index,
+            called_at = EXCLUDED.called_at,
+            call_expires_at = EXCLUDED.call_expires_at,
+            missed_turn_count = EXCLUDED.missed_turn_count,
+            started_at = EXCLUDED.started_at,
+            completed_at = EXCLUDED.completed_at,
+            error_message = EXCLUDED.error_message`,
+          [
+            item.id,
+            item.sessionId,
+            estId,
+            item.participantId,
+            item.participantDisplayName,
+            item.partnerParticipantId || null,
+            item.partnerDisplayName || null,
+            item.isDuet || false,
+            item.musicId,
+            item.musicTitle,
+            item.musicArtist,
+            item.versionId,
+            item.versionStyle,
+            item.youtubeVideoId,
+            item.toneOffset || 0,
+            item.status,
+            item.orderIndex,
+            item.queuedAt,
+            item.calledAt || null,
+            item.callExpiresAt || null,
+            item.missedTurnCount || 0,
+            item.startedAt || null,
+            item.completedAt || null,
+            item.errorMessage || null
+          ]
+        );
+      });
     } catch (err) {
       logger.error('Erro ao persistir item de fila no PostgreSQL:', err);
       throw err;
@@ -929,13 +984,16 @@ class VozPlayDB {
   public async persistQueueReindex(): Promise<void> {
     if (!pgClient.isConnected) return;
     try {
-      for (const item of this.queue) {
-        await pgClient.query('UPDATE queue_items SET order_index = $1, status = $2 WHERE id = $3', [
-          item.orderIndex,
-          item.status,
-          item.id
-        ]);
-      }
+      const estId = this.session.establishmentId;
+      await pgClient.runWithTenantContext(estId, async (client) => {
+        for (const item of this.queue) {
+          await client.query('UPDATE queue_items SET order_index = $1, status = $2 WHERE id = $3', [
+            item.orderIndex,
+            item.status,
+            item.id
+          ]);
+        }
+      });
     } catch (err) {
       logger.error('Erro ao persistir reindexação da fila no PostgreSQL:', err);
       throw err;
@@ -945,24 +1003,27 @@ class VozPlayDB {
   public async persistPlaybackState(): Promise<void> {
     if (!pgClient.isConnected) return;
     try {
-      await pgClient.query(
-        `INSERT INTO playback_states (session_id, current_queue_item_id, status, current_time_sec, volume, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (session_id) DO UPDATE SET
-           current_queue_item_id = EXCLUDED.current_queue_item_id,
-           status = EXCLUDED.status,
-           current_time_sec = EXCLUDED.current_time_sec,
-           volume = EXCLUDED.volume,
-           updated_at = EXCLUDED.updated_at`,
-        [
-          this.session.id,
-          this.playbackState.currentQueueItemId,
-          this.playbackState.status,
-          this.playbackState.currentTimeSec,
-          this.playbackState.volume,
-          this.playbackState.updatedAt
-        ]
-      );
+      const estId = this.session.establishmentId;
+      await pgClient.runWithTenantContext(estId, async (client) => {
+        await client.query(
+          `INSERT INTO playback_states (session_id, current_queue_item_id, status, current_time_sec, volume, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (session_id) DO UPDATE SET
+             current_queue_item_id = EXCLUDED.current_queue_item_id,
+             status = EXCLUDED.status,
+             current_time_sec = EXCLUDED.current_time_sec,
+             volume = EXCLUDED.volume,
+             updated_at = EXCLUDED.updated_at`,
+          [
+            this.session.id,
+            this.playbackState.currentQueueItemId,
+            this.playbackState.status,
+            this.playbackState.currentTimeSec,
+            this.playbackState.volume,
+            this.playbackState.updatedAt
+          ]
+        );
+      });
     } catch (err) {
       logger.error('Erro ao persistir playback state no PostgreSQL:', err);
       throw err;
@@ -972,24 +1033,27 @@ class VozPlayDB {
   public async persistParticipant(participant: Participant): Promise<void> {
     if (!pgClient.isConnected) return;
     try {
-      await pgClient.query(
-        `INSERT INTO participants (id, session_id, identity_id, display_name, whatsapp, is_verified, verified_at, joined_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (id) DO UPDATE SET
-           display_name = EXCLUDED.display_name,
-           is_verified = EXCLUDED.is_verified,
-           verified_at = EXCLUDED.verified_at`,
-        [
-          participant.id,
-          participant.sessionId,
-          participant.identityId || null,
-          participant.displayName,
-          participant.whatsapp || null,
-          participant.isVerified,
-          participant.verifiedAt || null,
-          participant.joinedAt
-        ]
-      );
+      const estId = this.session.establishmentId;
+      await pgClient.runWithTenantContext(estId, async (client) => {
+        await client.query(
+          `INSERT INTO participants (id, session_id, identity_id, display_name, whatsapp, is_verified, verified_at, joined_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (id) DO UPDATE SET
+             display_name = EXCLUDED.display_name,
+             is_verified = EXCLUDED.is_verified,
+             verified_at = EXCLUDED.verified_at`,
+          [
+            participant.id,
+            participant.sessionId,
+            participant.identityId || null,
+            participant.displayName,
+            participant.whatsapp || null,
+            participant.isVerified,
+            participant.verifiedAt || null,
+            participant.joinedAt
+          ]
+        );
+      });
     } catch (err) {
       logger.error('Erro ao persistir participante no PostgreSQL:', err);
       throw err;
@@ -999,28 +1063,30 @@ class VozPlayDB {
   public async persistLead(lead: Lead): Promise<void> {
     if (!pgClient.isConnected) return;
     try {
-      await pgClient.query(
-        `INSERT INTO leads (id, name, normalized_whatsapp, establishment_id, first_participation, last_participation, participations_count, consent_marketing, consent_date, origin)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT (id) DO UPDATE SET
-           name = EXCLUDED.name,
-           last_participation = EXCLUDED.last_participation,
-           participations_count = EXCLUDED.participations_count,
-           consent_marketing = EXCLUDED.consent_marketing,
-           consent_date = EXCLUDED.consent_date`,
-        [
-          lead.id,
-          lead.name,
-          lead.normalizedWhatsapp,
-          lead.establishmentId,
-          lead.firstParticipation,
-          lead.lastParticipation,
-          lead.participationsCount,
-          lead.consentMarketing,
-          lead.consentDate || null,
-          lead.origin
-        ]
-      );
+      await pgClient.runWithTenantContext(lead.establishmentId, async (client) => {
+        await client.query(
+          `INSERT INTO leads (id, name, normalized_whatsapp, establishment_id, first_participation, last_participation, participations_count, consent_marketing, consent_date, origin)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name,
+             last_participation = EXCLUDED.last_participation,
+             participations_count = EXCLUDED.participations_count,
+             consent_marketing = EXCLUDED.consent_marketing,
+             consent_date = EXCLUDED.consent_date`,
+          [
+            lead.id,
+            lead.name,
+            lead.normalizedWhatsapp,
+            lead.establishmentId,
+            lead.firstParticipation,
+            lead.lastParticipation,
+            lead.participationsCount,
+            lead.consentMarketing,
+            lead.consentDate || null,
+            lead.origin
+          ]
+        );
+      });
     } catch (err) {
       logger.error('Erro ao persistir lead no PostgreSQL:', err);
       throw err;
@@ -1030,46 +1096,48 @@ class VozPlayDB {
   public async persistBranding(branding: EstablishmentBranding): Promise<void> {
     if (!pgClient.isConnected) return;
     try {
-      await pgClient.query(
-        `INSERT INTO establishment_branding (
-          id, establishment_id, logo_url, business_name, slogan, primary_color, secondary_color,
-          accent_color, background_color, surface_color, text_color, theme_mode, tv_theme,
-          participant_theme, controller_theme, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-        ON CONFLICT (establishment_id) DO UPDATE SET
-          logo_url = EXCLUDED.logo_url,
-          business_name = EXCLUDED.business_name,
-          slogan = EXCLUDED.slogan,
-          primary_color = EXCLUDED.primary_color,
-          secondary_color = EXCLUDED.secondary_color,
-          accent_color = EXCLUDED.accent_color,
-          background_color = EXCLUDED.background_color,
-          surface_color = EXCLUDED.surface_color,
-          text_color = EXCLUDED.text_color,
-          theme_mode = EXCLUDED.theme_mode,
-          tv_theme = EXCLUDED.tv_theme,
-          participant_theme = EXCLUDED.participant_theme,
-          controller_theme = EXCLUDED.controller_theme,
-          updated_at = EXCLUDED.updated_at`,
-        [
-          branding.id,
-          branding.establishmentId,
-          branding.logoUrl || null,
-          branding.businessName,
-          branding.slogan || null,
-          branding.primaryColor,
-          branding.secondaryColor,
-          branding.accentColor,
-          branding.backgroundColor,
-          branding.surfaceColor,
-          branding.textColor,
-          branding.themeMode,
-          branding.tvTheme,
-          branding.participantTheme,
-          branding.controllerTheme,
-          branding.updatedAt
-        ]
-      );
+      await pgClient.runWithTenantContext(branding.establishmentId, async (client) => {
+        await client.query(
+          `INSERT INTO establishment_branding (
+            id, establishment_id, logo_url, business_name, slogan, primary_color, secondary_color,
+            accent_color, background_color, surface_color, text_color, theme_mode, tv_theme,
+            participant_theme, controller_theme, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          ON CONFLICT (establishment_id) DO UPDATE SET
+            logo_url = EXCLUDED.logo_url,
+            business_name = EXCLUDED.business_name,
+            slogan = EXCLUDED.slogan,
+            primary_color = EXCLUDED.primary_color,
+            secondary_color = EXCLUDED.secondary_color,
+            accent_color = EXCLUDED.accent_color,
+            background_color = EXCLUDED.background_color,
+            surface_color = EXCLUDED.surface_color,
+            text_color = EXCLUDED.text_color,
+            theme_mode = EXCLUDED.theme_mode,
+            tv_theme = EXCLUDED.tv_theme,
+            participant_theme = EXCLUDED.participant_theme,
+            controller_theme = EXCLUDED.controller_theme,
+            updated_at = EXCLUDED.updated_at`,
+          [
+            branding.id,
+            branding.establishmentId,
+            branding.logoUrl || null,
+            branding.businessName,
+            branding.slogan || null,
+            branding.primaryColor,
+            branding.secondaryColor,
+            branding.accentColor,
+            branding.backgroundColor,
+            branding.surfaceColor,
+            branding.textColor,
+            branding.themeMode,
+            branding.tvTheme,
+            branding.participantTheme,
+            branding.controllerTheme,
+            branding.updatedAt
+          ]
+        );
+      });
     } catch (err) {
       logger.error('Erro ao persistir branding no PostgreSQL:', err);
       throw err;

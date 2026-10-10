@@ -33,8 +33,9 @@ export const maiaTools: Record<string, MaIAToolDefinition> = {
     },
     execute: async (context: MaIAToolContext, params: { limit?: number }) => {
       const limit = Math.min(Math.max(1, Number(params.limit) || 10), 50);
+      const estId = context.establishmentId;
       const activeQueue = db.queue
-        .filter(q => q.status === 'QUEUED' || q.status === 'CALLED' || q.status === 'PLAYING')
+        .filter(q => (!estId || !q.establishmentId || q.establishmentId === estId) && (q.status === 'QUEUED' || q.status === 'CALLED' || q.status === 'PLAYING'))
         .slice(0, limit)
         .map(q => ({
           id: q.id,
@@ -49,8 +50,10 @@ export const maiaTools: Record<string, MaIAToolDefinition> = {
           partnerDisplayName: q.partnerDisplayName
         }));
 
+      const session = db.getSession(context.sessionId, estId) || db.session;
+
       return {
-        sessionStatus: db.session.status,
+        sessionStatus: session.status,
         queueLength: activeQueue.length,
         items: activeQueue
       };
@@ -80,8 +83,9 @@ export const maiaTools: Record<string, MaIAToolDefinition> = {
         throw new Error('Acesso negado: você só tem permissão para consultar sua própria vaga.');
       }
 
+      const estId = context.establishmentId;
       const item = db.queue.find(
-        q => q.participantId === targetId && (q.status === 'QUEUED' || q.status === 'CALLED')
+        q => q.participantId === targetId && (!estId || !q.establishmentId || q.establishmentId === estId) && (q.status === 'QUEUED' || q.status === 'CALLED')
       );
 
       if (!item) {
@@ -92,7 +96,7 @@ export const maiaTools: Record<string, MaIAToolDefinition> = {
       }
 
       const queuedBefore = db.queue.filter(
-        q => q.status === 'QUEUED' && q.orderIndex < item.orderIndex
+        q => (!estId || !q.establishmentId || q.establishmentId === estId) && q.status === 'QUEUED' && q.orderIndex < item.orderIndex
       ).length;
 
       return {
@@ -115,13 +119,14 @@ export const maiaTools: Record<string, MaIAToolDefinition> = {
     allowedRoles: ['PARTICIPANT', 'CONTROLLER', 'SUPERVISOR', 'SYSTEM_ADMIN', 'TV'],
     description: 'Retorna o status operacional da sessão do estabelecimento (ativa, pausada, horários).',
     parameters: { type: 'object', properties: {} },
-    execute: async () => {
+    execute: async (context: MaIAToolContext) => {
+      const session = db.getSession(context.sessionId, context.establishmentId) || db.session;
       return {
-        sessionId: db.session.id,
-        sessionName: db.session.name,
-        sessionCode: db.session.code,
-        status: db.session.status,
-        activeControllerName: db.session.activeControllerName,
+        sessionId: session.id,
+        sessionName: session.name,
+        sessionCode: session.code,
+        status: session.status,
+        activeControllerName: session.activeControllerName,
         totalSongsPlayed: db.metrics.totalSongsPlayed,
         playbackStatus: db.playbackState.status
       };
@@ -134,8 +139,9 @@ export const maiaTools: Record<string, MaIAToolDefinition> = {
     allowedRoles: ['CONTROLLER', 'SUPERVISOR', 'SYSTEM_ADMIN'],
     description: 'Retorna o próximo cantor elegível na fila sem alterar o estado do sistema.',
     parameters: { type: 'object', properties: {} },
-    execute: async () => {
-      const nextItem = db.queue.find(q => q.status === 'QUEUED');
+    execute: async (context: MaIAToolContext) => {
+      const estId = context.establishmentId;
+      const nextItem = db.queue.find(q => (!estId || !q.establishmentId || q.establishmentId === estId) && q.status === 'QUEUED');
       if (!nextItem) {
         return { hasNext: false, message: 'Fila vazia no momento.' };
       }
@@ -159,8 +165,9 @@ export const maiaTools: Record<string, MaIAToolDefinition> = {
     allowedRoles: ['PARTICIPANT', 'CONTROLLER', 'SUPERVISOR', 'SYSTEM_ADMIN', 'TV'],
     description: 'Retorna a música que está sendo cantada neste instante.',
     parameters: { type: 'object', properties: {} },
-    execute: async () => {
-      const playingItem = db.queue.find(q => q.status === 'PLAYING');
+    execute: async (context: MaIAToolContext) => {
+      const estId = context.establishmentId;
+      const playingItem = db.queue.find(q => (!estId || !q.establishmentId || q.establishmentId === estId) && q.status === 'PLAYING');
       if (!playingItem) {
         return { isPlaying: false, message: 'Nenhuma música tocando no momento.' };
       }
@@ -282,7 +289,8 @@ export const maiaTools: Record<string, MaIAToolDefinition> = {
       }
     },
     execute: async (context: MaIAToolContext, params: { reason?: string }) => {
-      const currentItem = db.queue.find(q => q.status === 'PLAYING');
+      const estId = context.establishmentId;
+      const currentItem = db.queue.find(q => (!estId || !q.establishmentId || q.establishmentId === estId) && q.status === 'PLAYING');
       if (!currentItem) {
         return { success: false, message: 'Nenhuma música tocando no momento.' };
       }
@@ -347,7 +355,8 @@ export const maiaTools: Record<string, MaIAToolDefinition> = {
       required: ['queueItemId']
     },
     execute: async (context: MaIAToolContext, params: { queueItemId: string }) => {
-      const item = db.queue.find(q => q.id === params.queueItemId);
+      const estId = context.establishmentId;
+      const item = db.queue.find(q => q.id === params.queueItemId && (!estId || !q.establishmentId || q.establishmentId === estId));
       if (!item) {
         throw new Error('Item não encontrado na fila.');
       }
@@ -387,18 +396,20 @@ export const maiaTools: Record<string, MaIAToolDefinition> = {
       }
     },
     execute: async (context: MaIAToolContext, params: { reason?: string }) => {
-      db.session.activeControllerId = 'supervisor-emergency';
-      db.session.activeControllerName = `${context.actorName || db.session.supervisorName} (Controle de Emergência)`;
-      await authService.revokeRoleTokens('CONTROLLER', db.session.establishmentId);
+      const estId = context.establishmentId || db.session.establishmentId;
+      const session = db.getSession(context.sessionId, estId) || db.session;
+      session.activeControllerId = 'supervisor-emergency';
+      session.activeControllerName = `${context.actorName || session.supervisorName} (Controle de Emergência)`;
+      await authService.revokeRoleTokens('CONTROLLER', estId);
       wsServer.disconnectClientsByRole('CONTROLLER', 'Controle assumido emergencialmente pelo Supervisor.');
       const newCode = db.generateNewPresenceCode();
       db.logAudit(
         'SUPERVISOR',
-        context.actorName || db.session.supervisorName,
+        context.actorName || session.supervisorName,
         'EMERGENCY_TAKEOVER',
         `Supervisor assumiu o controle emergencial via MaIA. ${params.reason || ''}`
       );
-      await db.persistSession(db.session);
+      await db.persistSession(session);
       wsServer.broadcastAuthoritativeState();
       return {
         success: true,

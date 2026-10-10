@@ -31,19 +31,35 @@ export class MaiaAuthorizationEngine {
     params: any
   ): AuthorizationPolicyResult {
     // 1. Isolamento Estrito de Estabelecimento (Multi-Tenant Isolation)
-    if (!context.establishmentId || context.establishmentId !== db.session.establishmentId) {
+    if (!context.establishmentId || typeof context.establishmentId !== 'string' || !context.establishmentId.trim()) {
       return {
         allowed: false,
-        reason: `Violação de isolamento multi-tenant: estabelecimento '${context.establishmentId}' não corresponde à sessão ativa.`,
+        reason: 'Violação de isolamento multi-tenant: identificador de estabelecimento ausente ou inválido.',
         category: tool.category
       };
     }
 
-    // 2. Isolamento de Sessão
-    if (context.sessionId && db.session.id && context.sessionId !== db.session.id) {
+    if (!db.isEstablishmentValid(context.establishmentId)) {
       return {
         allowed: false,
-        reason: `Sessão informada '${context.sessionId}' divergente da sessão ativa '${db.session.id}'.`,
+        reason: `Violação de isolamento multi-tenant: estabelecimento '${context.establishmentId}' não reconhecido ou inativo.`,
+        category: tool.category
+      };
+    }
+
+    // 2. Isolamento de Sessão (Validação segura sem acoplamento a singleton global mutável)
+    if (!context.sessionId || typeof context.sessionId !== 'string' || !context.sessionId.trim()) {
+      return {
+        allowed: false,
+        reason: 'Violação de isolamento de sessão: identificador de sessão ausente ou inválido.',
+        category: tool.category
+      };
+    }
+
+    if (!db.isSessionValidForEstablishment(context.sessionId, context.establishmentId)) {
+      return {
+        allowed: false,
+        reason: `Sessão informada '${context.sessionId}' não pertence ou não está ativa para o estabelecimento '${context.establishmentId}'.`,
         category: tool.category
       };
     }
@@ -63,7 +79,7 @@ export class MaiaAuthorizationEngine {
         // Verificação específica para consulta de vez do participante
         if (tool.name === 'getParticipantTurn') {
           if (context.actorRole === 'PARTICIPANT') {
-            if (!params.participantId || (context.actorId && context.actorId !== params.participantId)) {
+            if (!params?.participantId || (context.actorId && context.actorId !== params.participantId)) {
               return {
                 allowed: false,
                 reason: 'Violação de privacidade: participantes só podem consultar o status da sua própria vaga.',
@@ -102,6 +118,14 @@ export class MaiaAuthorizationEngine {
           return {
             allowed: false,
             reason: `Ação crítica '${tool.name}' restrita exclusivamente a supervisores ou administradores.`,
+            category: tool.category
+          };
+        }
+        // Confirmação obrigatória exigida para ferramentas críticas (Lote 1B / Requisito 7)
+        if (!params?.confirmed && !context.confirmed) {
+          return {
+            allowed: false,
+            reason: `Ação crítica '${tool.name}' exige confirmação explícita do supervisor (confirmed: true).`,
             category: tool.category
           };
         }
@@ -170,6 +194,19 @@ export class MaiaAuthorizationEngine {
       return result;
     } catch (err: any) {
       logger.error(`[MaiaAuthorizationEngine] Erro durante execução da ferramenta '${tool.name}':`, err);
+      aiAudit.record({
+        actor: context.actorName || 'Unknown',
+        establishment_id: context.establishmentId,
+        event_type: 'AI_PROVIDER_ACTIVATED',
+        provider: 'MaIA_ToolExecution',
+        reason: `FALHA_EXECUCAO_TOOL: ${tool.name} falhou durante execução por ${context.actorRole} - ${err?.message || String(err)}`,
+        details: {
+          tool: tool.name,
+          category: tool.category,
+          error: err?.message || String(err),
+          params: this.sanitizeParamsForAudit(params)
+        }
+      });
       throw err;
     }
   }
@@ -185,6 +222,10 @@ export class MaiaAuthorizationEngine {
     delete clean.apiKey;
     delete clean.whatsapp;
     delete clean.phone;
+    delete clean.authToken;
+    delete clean.secret;
+    delete clean.authorization;
+    delete clean.cookie;
     return clean;
   }
 }

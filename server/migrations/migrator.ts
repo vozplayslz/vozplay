@@ -24,6 +24,7 @@ export interface MigrationStatus {
   applied: boolean;
   appliedAt?: string;
   checksum?: string;
+  checksumMatches?: boolean;
 }
 
 export class MigrationEngine {
@@ -89,11 +90,20 @@ export class MigrationEngine {
 
     for (const file of diskFiles) {
       const record = appliedMap.get(file.name);
+      let checksumMatches: boolean | undefined = undefined;
+
+      if (record) {
+        const sqlContent = fs.readFileSync(file.fullPath, 'utf8');
+        const currentChecksum = this.computeChecksum(sqlContent);
+        checksumMatches = (record.checksum === currentChecksum);
+      }
+
       statusList.push({
         name: file.name,
         applied: Boolean(record),
         appliedAt: record ? record.applied_at : undefined,
-        checksum: record ? record.checksum : undefined
+        checksum: record ? record.checksum : undefined,
+        checksumMatches
       });
     }
 
@@ -102,48 +112,78 @@ export class MigrationEngine {
 
   /**
    * Executa todas as migrações pendentes em ordem sequencial com transação atômica por script
+   * e bloqueio consultivo (Advisory Lock) para proteção contra concorrência no startup.
    */
   public async up(client: pg.PoolClient): Promise<{ appliedCount: number; appliedNames: string[] }> {
     await this.ensureMigrationsTable(client);
 
-    const res = await client.query<{ migration_name: string }>(
-      'SELECT migration_name FROM schema_migrations'
-    );
-    const appliedSet = new Set(res.rows.map(r => r.migration_name));
+    // Proteção de concorrência global: adquire advisory lock no PostgreSQL
+    const ADVISORY_LOCK_ID = 8249102; // Hash numérico estável para o migrador VozPlay
+    await client.query('SELECT pg_advisory_lock($1)', [ADVISORY_LOCK_ID]);
 
-    const diskFiles = this.getMigrationFiles();
-    const appliedNames: string[] = [];
+    try {
+      const res = await client.query<MigrationRecord>(
+        'SELECT migration_name, checksum FROM schema_migrations ORDER BY id ASC'
+      );
+      const appliedMap = new Map(res.rows.map(r => [r.migration_name, r.checksum]));
 
-    for (const file of diskFiles) {
-      if (appliedSet.has(file.name)) {
-        continue;
+      const diskFiles = this.getMigrationFiles();
+      const appliedNames: string[] = [];
+
+      // 1. Auditoria de Integridade: Valida checksums de migrações já aplicadas
+      for (const file of diskFiles) {
+        if (appliedMap.has(file.name)) {
+          const expectedChecksum = appliedMap.get(file.name);
+          const sqlContent = fs.readFileSync(file.fullPath, 'utf8');
+          const currentChecksum = this.computeChecksum(sqlContent);
+
+          if (expectedChecksum !== currentChecksum) {
+            const integrityError = `[CRITICAL_MIGRATION_INTEGRITY] A migração "${file.name}" foi modificada após ser aplicada no banco de dados! Checksum no banco: ${expectedChecksum}, Checksum no arquivo: ${currentChecksum}. Modificações retroativas são proibidas.`;
+            logger.error(integrityError);
+            throw new Error(integrityError);
+          }
+        }
       }
 
-      logger.info(`[Migrator] Aplicando migração: ${file.name}...`);
-      const sqlContent = fs.readFileSync(file.fullPath, 'utf8');
-      const checksum = this.computeChecksum(sqlContent);
+      // 2. Aplicação sequencial de migrações pendentes
+      for (const file of diskFiles) {
+        if (appliedMap.has(file.name)) {
+          continue;
+        }
 
-      await client.query('BEGIN');
+        logger.info(`[Migrator] Aplicando migração: ${file.name}...`);
+        const sqlContent = fs.readFileSync(file.fullPath, 'utf8');
+        const checksum = this.computeChecksum(sqlContent);
+
+        await client.query('BEGIN');
+        try {
+          await client.query(sqlContent);
+          await client.query(
+            'INSERT INTO schema_migrations (migration_name, checksum) VALUES ($1, $2)',
+            [file.name, checksum]
+          );
+          await client.query('COMMIT');
+          appliedNames.push(file.name);
+          logger.info(`[Migrator] Migração ${file.name} aplicada com sucesso!`);
+        } catch (err) {
+          await client.query('ROLLBACK');
+          logger.error(`[Migrator] Falha crítica ao aplicar migração ${file.name}. Rollback executado:`, err);
+          throw err;
+        }
+      }
+
+      return {
+        appliedCount: appliedNames.length,
+        appliedNames
+      };
+    } finally {
+      // Libera o advisory lock
       try {
-        await client.query(sqlContent);
-        await client.query(
-          'INSERT INTO schema_migrations (migration_name, checksum) VALUES ($1, $2)',
-          [file.name, checksum]
-        );
-        await client.query('COMMIT');
-        appliedNames.push(file.name);
-        logger.info(`[Migrator] Migração ${file.name} aplicada com sucesso!`);
+        await client.query('SELECT pg_advisory_unlock($1)', [ADVISORY_LOCK_ID]);
       } catch (err) {
-        await client.query('ROLLBACK');
-        logger.error(`[Migrator] Falha crítica ao aplicar migração ${file.name}. Rollback executado:`, err);
-        throw err;
+        logger.warn('[Migrator] Aviso ao liberar advisory lock de migração:', { error: String(err) });
       }
     }
-
-    return {
-      appliedCount: appliedNames.length,
-      appliedNames
-    };
   }
 
   /**

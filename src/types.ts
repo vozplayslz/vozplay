@@ -85,6 +85,7 @@ export interface PlaylistItem {
 export interface QueueItem {
   id: string;
   sessionId: string;
+  establishmentId?: string;
   participantId: string;
   participantDisplayName: string;
   partnerParticipantId?: string;
